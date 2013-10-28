@@ -1072,6 +1072,7 @@ namespace Algorithms
   {
     g_log.information("Fitting Peak in a one-step approach. ");
 
+#if 0
     const MantidVec &vecX = input->readX(spectrum);
     const MantidVec &vecY = input->readY(spectrum);
 
@@ -1131,6 +1132,11 @@ namespace Algorithms
       updateFitResults(fit, bestparams, bestRawParams, mincost, in_centre, in_height);
 
     } // ENDFOR: Loop over "width"
+#else
+    // FIXME - Call FitPeak
+    fitPeak();
+
+#endif
 
     // Update output
     if (bestparams.size() > 1)
@@ -1344,6 +1350,7 @@ namespace Algorithms
                                                       double in_centre, double in_height, std::vector<double> in_fwhms,
                                                       double peakleftboundary, double peakrightboundary, double user_centre)
   {
+#if 0
     g_log.information() << "Fit peak with " << in_fwhms.size() << " starting sigmas.\n";
     if (in_fwhms.size() == 0)
     {
@@ -1517,6 +1524,12 @@ namespace Algorithms
     std::map<std::string, double> parameters = getFunctionParameters(peak);
     std::map<std::string, double> bkgdmap2 = getFunctionParameters(m_backgroundFunction);
     vecParameters.push_back(parameters);
+#else
+
+    // FIXME - Replace by FitPeak()
+    fitPeak();
+
+#endif
 
     PeakFittingRecord frd;
     if (rwp1best < rwp2)
@@ -2359,6 +2372,7 @@ namespace Algorithms
                                 size_t ileft, size_t iright, size_t imin, size_t imax,
                                 double& chi2)
   {
+#if 0
     // Store original information
     size_t numparams = m_backgroundFunction->nParams();
     double in_bg0 = m_backgroundFunction->getParameter("A0");
@@ -2477,6 +2491,11 @@ namespace Algorithms
     }
 
     chi2 = bkgdchi2;
+#else
+    // FIXME - Check whether there is anything that is not handled by FitPeak
+    throw runtime_error("Not Me");
+    fitBackgroudForNothing();
+#endif
 
     return true;
   }
@@ -2497,6 +2516,7 @@ namespace Algorithms
                                               MatrixWorkspace_sptr dataws, size_t wsindex,
                                               double startx, double endx, std::string constraint, double& init_rwp)
   {
+#if 0
     // FIXME - Constraint is not used for better performance at this moment.
     UNUSED_ARG(constraint);
 
@@ -2574,6 +2594,12 @@ namespace Algorithms
     {
       final_rwp = DBL_MAX;
     }
+
+#else
+    // FIXME - Find out the caller of this function.
+    // My wild guess is that this method is part of FitPeak
+    fitPeak();
+#endif
 
     return final_rwp;
   }
