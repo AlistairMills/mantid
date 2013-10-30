@@ -29,10 +29,12 @@
 #include "MantidAlgorithms/FindPeaks.h"
 #include "MantidAPI/TableRow.h"
 #include "MantidKernel/ArrayProperty.h"
+#include "MantidKernel/StartsWithValidator.h"
 #include "MantidKernel/VectorHelper.h"
 #include "MantidAPI/CompositeFunction.h"
 #include "MantidAPI/WorkspaceValidators.h"
 #include "MantidAPI/FunctionFactory.h"
+#include "MantidAPI/FuncMinimizerFactory.h"
 #include "MantidAPI/IPeakFunction.h"
 #include "MantidDataObjects/Workspace2D.h"
 #include "MantidAPI/ConstraintFactory.h"
@@ -88,7 +90,6 @@ namespace Algorithms
 
   //----------------------------------------------------------------------------------------------
   /** Lower bound of a given value
-    */
   size_t getLowerBound(const MantidVec& X, size_t xi, size_t xf, double value)
   {
     // FIXME Consider to use std::lower_bound()
@@ -150,6 +151,7 @@ namespace Algorithms
 
     return isearch;
   }
+  */
 
   // Register the algorithm into the AlgorithmFactory
   DECLARE_ALGORITHM(FindPeaks)
@@ -238,19 +240,22 @@ namespace Algorithms
     declareProperty("RawPeakParameters", false,
                     "false generates table with effective centre/width/height parameters. true generates a table with peak function parameters");
 
-
     declareProperty("MinimumPeakHeight", DBL_MIN, "Minimum allowed peak height. ");
 
+    std::vector<std::string> costFuncOptions;
+    costFuncOptions.push_back("Chi-Square");
+    costFuncOptions.push_back("Rwp");
+    declareProperty("CostFunction","Chi-Square",
+                    Kernel::IValidator_sptr(new Kernel::ListValidator<std::string>(costFuncOptions)),
+                    "Cost functions");
 
-    // Debug Workspaces
-    /*
-       declareProperty(new WorkspaceProperty<API::MatrixWorkspace>("BackgroundWorkspace", "", Direction::Output),
-       "Temporary Background Workspace ");
-       declareProperty(new WorkspaceProperty<API::MatrixWorkspace>("TheorticBackgroundWorkspace", "", Direction::Output),
-       "Temporary Background Workspace ");
-       declareProperty(new WorkspaceProperty<API::MatrixWorkspace>("PeakWorkspace", "", Direction::Output),
-       "Temporary Background Workspace ");
-       */
+    std::vector<std::string> minimizerOptions = API::FuncMinimizerFactory::Instance().getKeys();
+
+    declareProperty("Minimizer", "Levenberg-MarquardtMD",
+      Kernel::IValidator_sptr(new Kernel::StartsWithValidator(minimizerOptions)),
+      "Minimizer to use for fitting. Minimizers available are \"Levenberg-Marquardt\", \"Simplex\","
+                    "\"Conjugate gradient (Fletcher-Reeves imp.)\", \"Conjugate gradient (Polak-Ribiere imp.)\", \"BFGS\", and \"Levenberg-MarquardtMD\"");
+
 
     return;
   }
@@ -264,34 +269,10 @@ namespace Algorithms
     processAlgorithmProperties();
 
     // Create those functions to fit
-    m_backgroundFunction = createBackgroundFunction(0., 0., 0.);
+    createFunctions();
 
     // Set up output table workspace
-    m_outPeakTableWS = WorkspaceFactory::Instance().createTable("TableWorkspace");
-    m_outPeakTableWS->addColumn("int", "spectrum");
-    if (m_rawPeaksTable)
-    {
-      IFunction_sptr temp = this->createFunction(0., 0., 0., 0., 0., 0., true);
-
-      m_numTableParams = temp->nParams();
-      for (std::size_t i = 0; i < m_numTableParams; i++)
-      {
-        m_outPeakTableWS->addColumn("double", temp->parameterName(i));
-      }
-      if (m_backgroundFunction->nParams() < 3)
-        m_outPeakTableWS->addColumn("double", "f1.A2");
-    }
-    else
-    {
-      m_numTableParams = 6;
-      m_outPeakTableWS->addColumn("double", "centre");
-      m_outPeakTableWS->addColumn("double", "width");
-      m_outPeakTableWS->addColumn("double", "height");
-      m_outPeakTableWS->addColumn("double", "backgroundintercept");
-      m_outPeakTableWS->addColumn("double", "backgroundslope");
-      m_outPeakTableWS->addColumn("double", "A2");
-    }
-    m_outPeakTableWS->addColumn("double", "chi2");
+    generateOutputPeakParameterTable();
 
     // Fit
     m_searchPeakPos = false;
@@ -306,8 +287,9 @@ namespace Algorithms
         }
         m_searchPeakPos = true;
       }
+
       //Perform fit with fixed start positions.
-      this->findPeaksGivenStartingPoints(m_vecPeakCentre, m_vecFitWindows);
+      findPeaksGivenStartingPoints(m_vecPeakCentre, m_vecFitWindows);
     }
     else
     {
@@ -317,7 +299,7 @@ namespace Algorithms
       this->findPeaksUsingMariscotti();
     }
 
-    // 5. Output
+    // Set output properties
     g_log.information() << "Total of " << m_outPeakTableWS->rowCount()
                         << " peaks found and successfully fitted." << std::endl;
     setProperty("PeaksList", m_outPeakTableWS);
@@ -390,7 +372,50 @@ namespace Algorithms
     // Minimum peak height
     m_minHeight = getProperty("MinimumPeakHeight");
 
+    // About Fit
+    m_minimizer = getPropertyValue("Minimizer");
+    std::string costfunname = getProperty("CostFunction");
+    if (costfunname == "Chi-Square")
+      m_costFunction = "Least squares";
+    else if (costfunname == "Rwp")
+      m_costFunction = "Rwp";
+    else
+    {
+      g_log.error() << "Cost function " << costfunname << " is not supported. " << "\n";
+      throw std::runtime_error("Cost function is not supported. ");
+    }
+
     return;
+  }
+
+  //----------------------------------------------------------------------------------------------
+  /** Generate a table workspace for output peak parameters
+    */
+  void FindPeaks::generateOutputPeakParameterTable()
+  {
+    m_outPeakTableWS = WorkspaceFactory::Instance().createTable("TableWorkspace");
+    m_outPeakTableWS->addColumn("int", "spectrum");
+    if (m_rawPeaksTable)
+    {
+      size_t numpeakpars = m_peakFunction->nParams();
+      size_t numbkgdpars = m_backgroundFunction->nParams();
+      for (size_t i = 0; i < numpeakpars; ++i)
+        m_outPeakTableWS->addColumn("double", m_peakParameterNames[i]);
+      for (size_t i = 0; i < numbkgdpars; ++i)
+        m_outPeakTableWS->addColumn("double", m_bkgdParameterNames[i]);
+      // m_outPeakTableWS->addColumn("double", "f1.A2");
+    }
+    else
+    {
+      m_numTableParams = 6;
+      m_outPeakTableWS->addColumn("double", "centre");
+      m_outPeakTableWS->addColumn("double", "width");
+      m_outPeakTableWS->addColumn("double", "height");
+      m_outPeakTableWS->addColumn("double", "backgroundintercept");
+      m_outPeakTableWS->addColumn("double", "backgroundslope");
+      m_outPeakTableWS->addColumn("double", "A2");
+    }
+    m_outPeakTableWS->addColumn("double", "chi2");
   }
 
   //----------------------------------------------------------------------------------------------
@@ -434,7 +459,7 @@ namespace Algorithms
           if (useWindows)
             fitPeakInWindow(m_dataWS, spec, x_center, fitwindows[2 * i], fitwindows[2 * i + 1]);
           else
-            fitPeak(m_dataWS, spec, x_center, m_inputPeakFWHM);
+            fitPeakGivenFWHM(m_dataWS, spec, x_center, m_inputPeakFWHM);
         }
 
       } // loop through the peaks specified
@@ -635,7 +660,7 @@ namespace Algorithms
           if (i_max >= wssize)
             i_max = wssize - 1;
 
-          this->fitPeak(m_dataWS, k, i_min, i_max, i4);
+          this->fitSinglePeak(m_dataWS, k, i_min, i_max, i4);
 
           // reset and go searching for the next peak
           i1 = 0, i2 = 0, i3 = 0, i4 = 0, i5 = 0;
@@ -884,14 +909,15 @@ namespace Algorithms
     *  @param input ::    The input workspace
     *  @param spectrum :: The spectrum index of the peak (is actually the WorkspaceIndex)
     *  @param center_guess :: A guess of the X-value of the center of the peak, in whatever units of the X-axis of the workspace.
-    *  @param FWHM_guess :: A guess of the full-width-half-max of the peak, in # of bins.
+    *  @param fitWidth :: A guess of the full-width-half-max of the peak, in # of bins.
     */
-  void FindPeaks::fitPeak(const API::MatrixWorkspace_sptr &input, const int spectrum,
-                          const double center_guess, const int FWHM_guess)
+  void FindPeaks::fitPeakGivenFWHM(const API::MatrixWorkspace_sptr &input, const int spectrum,
+                          const double center_guess, const int fitWidth)
   {
     g_log.information() << "Fit peak with guessed FWHM:  starting center = " << center_guess
-                        << ", FWHM = " << FWHM_guess << ".\n";
+                        << ", FWHM = " << fitWidth << ".\n";
 
+#if 1
     // The indices
     int i_centre;
 
@@ -901,8 +927,6 @@ namespace Algorithms
 
     // Find i_center - the index of the center - The guess is within the X axis?
     i_centre = this->getVectorIndex(vecX, center_guess);
-
-    const int fitWidth = FWHM_guess;
 
     // See Mariscotti eqn. 20. Using l=1 for bg0/bg1 - correspond to p6 & p7 in paper.
     int i_min = 1;
@@ -922,7 +946,102 @@ namespace Algorithms
     g_log.debug() << "Background + Peak -- Bounds Fit Range = " << vecX[i_min]
                   << ", " << vecX[i_max] << ".\n";
 
-    fitPeak(input, spectrum, i_min, i_max, i_centre);
+    fitSinglePeak(input, spectrum, i_min, i_max, i_centre);
+#else
+    //-------------------------------------------------------------------------
+    // Determine range to fit by guessed FWHM
+    //-------------------------------------------------------------------------
+    // The X axis you are looking at
+    const MantidVec &vecX = input->readX(spectrum);
+    const MantidVec &vecY = input->readY(spectrum);
+
+    // Find out the indices for Xmin, Xcentre and Xmax
+    int i_centre;
+
+    // Find i_center - the index of the center - The guess is within the X axis?
+    i_centre = this->getVectorIndex(vecX, center_guess);
+
+    // X-min: 5 times of fit width to the left of icentre
+    int i_min = 1;
+    if (i_centre > 5 * fitWidth)
+      i_min = i_centre - 5 * fitWidth;
+    if (i_min < 1)
+      i_min = 1;
+
+    // X-max: 5 times of fit width to the right of icentre
+    int i_max = i_centre + 5 * fitWidth;
+    if (i_max >= static_cast<int>(vecX.size())-1)
+      i_max = static_cast<int>(vecY.size())-2;
+
+    // Check
+    if (i_max - i_min <= 0)
+      throw std::runtime_error("Impossible to i_min >= i_max.");
+
+    // To double
+    double xmin = vecX[i_min];
+    double xmax = vecX[i_max];
+
+    //-------------------------------------------------------------------------
+    // Set up calling FitPeak()
+    //-------------------------------------------------------------------------
+    const MatrixWorkspace_sptr& inputws = input;
+    std::string outputwsname("TempX1");
+    std::string outputtblwsname("TempX2");
+    int wsindex = spectrum;
+    std::string peakfunctiontype(m_peakFuncType);
+    // FIXME - Set up m_peakParameterNames!
+    std::vector<std::string> vecpeakparnames = m_peakParameterNames;
+    std::vector<double> vecpeakvalues0 = getStartingPeakValues();
+    // FIXME - Set up m_bkgdParameterNames
+    std::vector<std::string> vecbkgdparanmes = m_bkgdParameterNames;
+    std::vector<double> vecbkgdvalues0 = getStartingBkgdValues();
+    std::vector<double> fitwindow(2);
+    fitwindow[0] = xmin;
+    fitwindow[1] = xmax;
+    // FIXME - getPeakRange should be rooted from findPeakBackground!
+    std::vector<double> peakrange = getPeakRange();
+    bool fitpeakbkgdfirst = m_highBackground;
+    double peakpositiontolerance = m_peakPositionTolerance;
+
+    double minguesspeakwidth = m_minGuessedPeakWidth;
+    double maxguesspeakwidth = m_maxGuessedPeakWidth;
+    double guessedpeakwidthstep = m_stepGuessedPeakWidth;
+
+    // FIXME - Set up m_costFunction
+    std::string costfunction(m_costFunction);
+    std::string minimizer(m_minimizer);
+
+    std::vector<double> vec_fitpeakparvalues, vec_fitbkgdparvalues;
+    callFitPeak(vec_fitpeakparvalues, vec_fitbkgdparvalues);
+
+
+#endif
+
+    /*
+nputWorkspace 	Input 	MatrixWorkspace 	Mandatory 	Name of the input workspace for peak fitting.
+2 	OutputWorkspace 	Output 	MatrixWorkspace 	Mandatory 	Name of the output workspace containing fitted peak.
+3 	ParameterTableWorkspace 	Output 	TableWorkspace 		Name of the table workspace containing the fitted parameters.
+4 	WorkspaceIndex 	Input 	number 	0 	Workspace index
+5 	PeakFunctionType 	Input 	string 	Gaussian 	Peak function type.
+6 	PeakParameterNames 	Input 	str list 		List of peak parameter names.
+7 	PeakParameterValues 	Input 	dbl list 		List of peak parameter values. They must have a 1-to-1 mapping to PeakParameterNames list.
+8 	FittedPeakParameterValues 	Output 	dbl list 		Fitted peak parameter values.
+9 	BackgroundType 	Input 	string 	Linear 	Type of Background.
+10 	BackgroundParameterNames 	Input 	str list 		List of background parameter names.
+11 	BackgroundParameterValues 	Input 	dbl list 		List of background parameter values. They must have a 1-to-1 mapping to BackgroundParameterNames list.
+12 	FittedBackgroundParameterValues 	Output 	dbl list 		Fitted background parameter values.
+13 	FitWindow 	Input 	dbl list 		Enter a comma-separated list of the expected X-position of windows to fit. The number of values must be 2.
+14 	PeakRange 	Input 	dbl list 		Enter a comma-separated list of expected x-position as peak range. The number of values must be 2.
+15 	FitBackgroundFirst 	Input 	boolean 	True 	If true, then the algorithm will fit background first. And then the peak.
+16 	RawParams 	Input 	boolean 	True 	If true, then the output table workspace contains the raw profile parameter. Otherwise, the effective parameters will be written.
+17 	MinGuessedPeakWidth 	Input 	number 	2 	Minimum guessed peak width for fit. It is in unit of number of pixels.
+18 	MaxGuessedPeakWidth 	Input 	number 	10 	Maximum guessed peak width for fit. It is in unit of number of pixels.
+19 	GuessedPeakWidthStep 	Input 	number 	Optional 	Step of guessed peak width. It is in unit of number of pixels.
+20 	PeakPositionTolerance 	Input 	number 	Optional 	Peak position tolerance. If fitted peak's position differs from proposed value more than the given value, fit is treated as failure.
+21 	CostFunction 	Input 	string 	Chi-Square 	Cost functions
+22 	Minimizer 	Input
+
+      */
 
     return;
 
@@ -978,577 +1097,85 @@ namespace Algorithms
     }
 
     // finally do the actual fit
-    fitPeak(input, spectrum, i_min, i_max, i_centre);
+    fitSinglePeak(input, spectrum, i_min, i_max, i_centre);
 
     return;
   }
 
-  //----------------------------------------------------------------------------------------------
-  /** Attempts to fit a candidate peak
-    *  This is the core fitPeak() to call in the fitPeak hierarchy
-    *
-    *  @param input ::    The input workspace
-    *  @param spectrum :: The spectrum index of the peak (is actually the WorkspaceIndex)
-    *  @param i_max ::    Channel number of peak candidate i0 - the higher side of the peak (right side)
-    *  @param i_min ::    Channel number of peak candidate i2 - the lower side of the peak (left side)
-    *  @param i_centre :  Channel number of peak candidate i4 - the center of the peak
-    */
-  void FindPeaks::fitPeak(const API::MatrixWorkspace_sptr &input, const int spectrum, const int i_min,
-                          const int i_max, const int i_centre)
-  {
-	int i_peakmin = 0;
-	int i_peakmax = i_max - i_min;
-    const MantidVec &vecX = input->readX(spectrum);
-    const MantidVec &vecY = input->readY(spectrum);
-
-    g_log.information() << "Fit Peak @ " << vecX[i_centre] << "  of Spectrum " << spectrum << ". Fit peak In Range "
-                        << vecX[i_min] << ", " << vecX[i_max] << "  i_min = " << i_min << ", i_max = "
-                        << i_max << ", i_centre = " << i_centre << ".\n";
-
-    // Estimate background: output-> m_backgroundFunction
-    double in_bg0;
-    double in_bg1;
-    double in_bg2;
-    estimateBackground(vecX, vecY, i_min, i_max, in_bg0, in_bg1, in_bg2);
-
-    IAlgorithm_sptr estimate = createChildAlgorithm("FindPeakBackground");
-    estimate->setProperty("InputWorkspace", input);
-    // The workspace index
-    std::vector<int> wivec;
-    wivec.push_back(spectrum);
-    estimate->setProperty("WorkspaceIndices", wivec);
-    //estimate->setProperty("SigmaConstant", 1.0);
-    // The workspace index
-    std::vector<double> fwvec;
-    fwvec.push_back(vecX[i_min]);
-    fwvec.push_back(vecX[i_max]);
-    estimate->setProperty("BackgroundType", m_backgroundType);
-    estimate->setProperty("FitWindow", fwvec);
-    estimate->executeAsChildAlg();
-    // Get back the result
-    Mantid::API::ITableWorkspace_sptr peaklist = estimate->getProperty("OutputWorkspace");
-    if (peaklist->rowCount() > 0)
-    {
-    	if(peaklist->Int(0,1) >= i_min)i_peakmin = peaklist->Int(0,1) - i_min;
-    	if(peaklist->Int(0,2) >= i_min)i_peakmax = peaklist->Int(0,2) - i_min - 1;
-    	in_bg0 = peaklist->Double(0,3);
-    	in_bg1 = peaklist->Double(0,4);
-    	in_bg2 = peaklist->Double(0,5);
-    }
-
-    if (!m_highBackground)
-    {
-      // Not high background.  Fit background and peak together (The original Method)
-      //  fitPeakOneStep(input, spectrum, i0, i2, i4, in_bg0, in_bg1, in_bg2);
-      fitPeakOneStep(input, spectrum, i_min, i_max, i_centre, in_bg0, in_bg1, in_bg2);
-    }
-    else
-    {
-      // High background
-      fitPeakHighBackground(input, spectrum, i_centre, i_min, i_max, in_bg0, in_bg1, in_bg2, i_peakmin, i_peakmax);
-
-    } // if high background
-
-    g_log.debug() << "Fit Peak Over" << std::endl;
-
-    return;
-  }
 
   //----------------------------------------------------------------------------------------------
-  /** Fit 1 peak in one step, i.e., one function combining both Gaussian and background
-    *
-    * @param input:: input Matrix workspace
-    * @param spectrum :: workspace index of the spectrum to find peaks
-    * @param i_max:: bin index of right end of data to find peak
-    * @param i_min:: bin index of left end of data to find peak
-    * @param i_centre:: bin index of center of peak
-    * @param in_bg0: guessed value of a0 (in/out)
-    * @param in_bg1: guessed value of a1 (in/out)
-    * @param in_bg2: guessed value of a2 (in/out)
+  /** Fit a single peak
+    * This is the fundametary peak fit function used by all kinds of input
     */
-  void FindPeaks::fitPeakOneStep(const API::MatrixWorkspace_sptr &input, const int spectrum,
-                                 const int& i_min, const int& i_max, const int& i_centre,
-                                 const double& in_bg0, const double& in_bg1, const double& in_bg2)
+  void FindPeaks::fitSinglePeak(const API::MatrixWorkspace_sptr &input, const int spectrum, const int i_min,
+                                const int i_max, const int i_centre)
   {
-    g_log.information("Fitting Peak in a one-step approach. ");
+    //-------------------------------------------------------------------------
+    // Estimate peak and background parameters for better fitting
+    //-------------------------------------------------------------------------
 
-#if 0
-    const MantidVec &vecX = input->readX(spectrum);
-    const MantidVec &vecY = input->readY(spectrum);
+    // Estimate background
+    std::vector<double> vec_bkgdparvalues0, vecpeakrange;
+    // FIXME
+    findPeakBackground(input, spectrum, i_min, i_max, vec_bkgdparvalues0, vecpeakrange);
 
-    // Initialize some starting values
-    // FIXME - This only works for flat background!
-    const double in_height = vecY[i_centre] - in_bg0;
-    const double in_centre = input->isHistogramData() ? 0.5 * (vecX[i_centre] + vecX[i_centre + 1]) : vecX[i_centre];
-
-    double mincost = DBL_MAX;
-    std::vector<double> bestparams, bestRawParams;
-
-    // Loop around peak width
-    for (int width = m_minGuessedPeakWidth; width <= m_maxGuessedPeakWidth; width +=
-         m_stepGuessedPeakWidth)
+    // Estimate peak parameters
+    double est_centre, est_height, est_fwhm;
+    const MantidVec& vecX = input->readX(spectrum);
+    const MantidVec& vecY = input->readY(spectrum);
+    std::string errmsg = estimatePeakParameters(vecX, vecY, i_min, i_max, est_centre, est_height, est_fwhm);
+    if (errmsg.size() > 0)
     {
-      // Set up Child Algorithm Fit
-      IAlgorithm_sptr fit;
-      try
-      {
-        // Fitting the candidate peaks to a Gaussian
-        fit = createChildAlgorithm("Fit", -1, -1, true);
-      }
-      catch (Exception::NotFoundError &)
-      {
-        std::string errorstr("FindPeaks algorithm requires the CurveFitting library");
-        g_log.error(errorstr);
-        throw std::runtime_error(errorstr);
-      }
+      // Unable to estimate peak
+      est_centre = vecX[i_centre];
+      est_fwhm = 1.;
+      est_height = 1.;
+      g_log.error(errmsg);
+    }
 
-      // Calculate the guessed sigma
-      // const double in_sigma = (i0 + width < vecX.size()) ? vecX[i0 + width] - vecX[i0] : 0.;
-      int vecsize = static_cast<int>(vecX.size());
-      const int i_right = (i_centre + width < vecsize) ? i_centre + width : vecsize-1;
-      const int i_left = (i_centre - width >= 0) ? i_centre - width : 0;
-      const double in_sigma = vecX[i_right] - vecX[i_left];
+    // Set peak parameters to
+    m_peakFunction->setCentre(est_centre);
+    m_peakFunction->setHeight(est_height);
+    m_peakFunction->setFwhm(est_fwhm);
 
-      // Create function to fit
-      IFunction_sptr fitFunction = createFunction(in_height, in_centre, in_sigma, in_bg0, in_bg1,
-                                                  in_bg2, true);
-      g_log.debug() << "  Function: " << fitFunction->asString() << "; Background Type = "
-                    << m_backgroundType << std::endl;
+    std::vector<double> vec_peakparvalues0 = getStartingPeakValues();
 
-      // Set up Fit algorithm
-      fit->setProperty("Function", fitFunction);
-      fit->setProperty("InputWorkspace", input);
-      fit->setProperty("WorkspaceIndex", spectrum);
-      fit->setProperty("MaxIterations", 50);
-      fit->setProperty("StartX", vecX[i_min]); //(X[i0] - 5 * (X[i0] - X[i2])));
-      fit->setProperty("EndX", vecX[i_max]); //(X[i0] + 5 * (X[i0] - X[i2])));
-      fit->setProperty("Minimizer", m_minimizer);
-      fit->setProperty("CostFunction", "Least squares");
-      fit->setProperty("IgnoreInvalidData", true);
+    //-------------------------------------------------------------------------
+    // Fit Peak
+    //-------------------------------------------------------------------------
+    std::vector<double> fitwindow(2);
+    fitwindow[0] = vecX[i_min];
+    fitwindow[1] = vecX[i_max];
+    std::vector<double> vec_fittedpeakparvalues, vec_fittedbkgdparvalues;
+    // FIXME
+    bool fitsuccess = callFitPeak(input, spectrum, vec_peakparvalues0, vec_bkgdparvalues0, fitwindow, vecpeakrange,
+                                  m_minGuessedPeakWidth, m_maxGuessedPeakWidth, m_stepGuessedPeakWidth,
+                                  vec_fittedpeakparvalues, vec_fittedbkgdparvalues);
 
-      // e) Fit and get result
-      fit->executeAsChildAlg();
-
-      updateFitResults(fit, bestparams, bestRawParams, mincost, in_centre, in_height);
-
-    } // ENDFOR: Loop over "width"
-#else
-    // FIXME - Call FitPeak
-    fitPeak();
-
-#endif
-
+    //-------------------------------------------------------------------------
+    // Process Fit result
+    //-------------------------------------------------------------------------
+    // FIXME - : where is costfuncvalue
     // Update output
-    if (bestparams.size() > 1)
-      addInfoRow(spectrum, bestparams, bestRawParams, mincost,
-             (bestparams[0] < vecX.front() || bestparams[0] > vecX.back()));
+    if (fitsuccess)
+      addInfoRow(spectrum, vec_fittedpeakparvalues, vec_fittedbkgdparvalues, m_rawPeaksTable, costfuncvalue, fitsuccess);
     else
-      addInfoRow(spectrum, bestparams, bestRawParams, mincost, true);
+      addNonFitRecord(spectrum);
 
     // Update collection of peaks
+#if 0
     IFunction_sptr fitFunction = createFunction(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, true);
     for (size_t i = 0; i < bestRawParams.size(); ++i)
       fitFunction->setParameter(i, bestRawParams[i]);
     addFittedFunction(fitFunction, i_min, i_max);
-
-    return;
-  }
-
-  //----------------------------------------------------------------------------------------------
-  /** Fit peak with high background
-    *
-    * About fit algorithm
-    * (1) Get 2 ends of workspace to estimate background
-    *   - assuming it is linear or quasilinear;
-    *   - if the background noise level is comparible to peak height, then the peak is not worth fitting!
-    *     in the case that the the peak height is dimmed by making a straight line between 2 end points
-    *   - if the peak shifts off the given range, then there is NO hope
-    * (2) Estimate peak height
-    * (3) Fit scheme 1:
-    *   a. Loop over specified peak's FWHM range to fit peak with fixed background
-    *   b. Choose the best result and fit the background again
-    *   c. Fit peak with every open
-    * (4) Fit peak with observed/estimated peak parameters
-    *   a. Fit pure peak
-    *   b. Fit pure background
-    *   c. Fit them all
-    * (5) Choose the better result between (3) and (4)
-    *
-    * About book keeping
-    * - Each fit will return
-    *
-    * @param input :: matrix workspace to fit with
-    * @param spectrum :: workspace index of the spetrum to fit with
-    * @param i_centre: bin index of center of peak (raw/input data workspace)
-    * @param i_min: bin index of left bound of fit range (raw/input data workspace)
-    * @param i_max: bin index of right bound of fit range (raw/input data workspace)
-    * @param in_bg0: guessed value of a0 (output)
-    * @param in_bg1: guessed value of a1 (output)
-    * @param in_bg2: guessed value of a2 (output)
-    */
-  void FindPeaks::fitPeakHighBackground(const API::MatrixWorkspace_sptr &input, const size_t spectrum,
-                                        int i_centre, int i_min, int i_max,
-                                        double& in_bg0, double& in_bg1, double& in_bg2,
-                                        int i_peakmin, int i_peakmax)
-  {
-    // Check that the indices provided are sensible
-    if (i_min >= i_centre || i_max <= i_centre || i_min < 0)
-    {
-      g_log.error() << "FitPeakHightBackground has erroreous input.  i_min = " << i_min << ", i_centre = "
-                    << i_centre << ", i_max = " << i_max << "\n";
-      addNonFitRecord(spectrum);
-      return;
-    }
-
-    // calculate the number of points in the fit window
-    int numpts = i_max-i_min+1;
-    if (numpts <= 0)
-    {
-      g_log.error() << "FitPeakHighBackground.  Pure peak workspace size <= 0.\n";
-      addNonFitRecord(spectrum);
-      return;
-    }
-
-    // get the original data
-    const MantidVec &rawX = input->readX(spectrum);
-    const MantidVec &rawY = input->readY(spectrum);
-    double user_centre = rawX[i_centre];
-
-    g_log.information() << "Fitting a peak assumed at " << user_centre
-                        << " (index = " << i_centre << ") by high-background approach. \n";
-
-    // Create a pure peak workspace (Workspace2D)
-    size_t sizex = static_cast<size_t>(numpts);
-    size_t sizey = sizex;
-    API::MatrixWorkspace_sptr peakws =
-        API::WorkspaceFactory::Instance().create("Workspace2D", 1,  sizex, sizey);
-
-    //    set up x-axis first
-    MantidVec& dataX = peakws->dataX(0);
-    dataX.assign(rawX.begin()+i_min, rawX.begin()+i_min+numpts);
-
-    //    set up Y/E as pure peak
-    FunctionDomain1DVector domain(dataX);
-    FunctionValues backgroundvalues(domain);
-    m_backgroundFunction->function(domain, backgroundvalues);
-
-    MantidVec& dataY = peakws->dataY(0);
-    for (int i = 0; i < numpts; ++i)
-    {
-      dataY[i] = rawY[i_min+i] - backgroundvalues[i];
-      if (dataY[i] < 0)
-        dataY[i] = 0.;
-    }
-    MantidVec& dataE = peakws->dataE(0);
-    dataE.assign(numpts, 1.);
-
-    // Estimate/observe peak parameters
-    const MantidVec& peakX = peakws->readX(0);
-    const MantidVec& peakY = peakws->readY(0);
-
-    double g_centre, g_height, g_fwhm;
-    std::string errormessage
-        = estimatePeakParameters(peakX, peakY, 0, numpts-1, g_centre, g_height, g_fwhm);
-    if (!errormessage.empty())
-    {
-      g_log.debug() << errormessage << "\n";
-      addNonFitRecord(spectrum);
-      return;
-    }
-
-    // Fit with loop upon specified FWHM range
-    g_log.information("\nFitting peak by trying different peak width.");
-    std::vector<double> vec_FWHM;
-    for (int iwidth = m_minGuessedPeakWidth; iwidth <= m_maxGuessedPeakWidth; iwidth +=
-         m_stepGuessedPeakWidth)
-    {
-      int peakwssize = static_cast<int>(peakX.size());
-      // There are 3 possible situation: peak at left edge, peak in proper range, peak at righ edge
-      // There should no guessed
-      int ileftside = (i_centre - i_min) - iwidth/2;
-      if (ileftside < 0)
-        ileftside = 0;
-
-      int irightside = (i_centre - i_min) + iwidth/2;
-      if (irightside >= peakwssize)
-        irightside = peakwssize-1;
-
-      double in_fwhm = peakX[irightside] - peakX[ileftside];
-      if (in_fwhm < 1.0E-20)
-      {
-        g_log.warning() << "It is impossible to have zero peak width as iCentre = "
-                        << i_centre << ", iMin = "
-                        << i_min << ", iWidth = " << iwidth << "\n"
-                        << "More information: Spectrum = " << spectrum << "; Range of X is "
-                        << rawX[0] << ", " << rawX.back()
-                        << "; Peak centre = " << rawX[i_centre];
-      }
-      else
-      {
-        g_log.debug() << "Fx330 i_width = " << iwidth << ", i_left = " << ileftside << ", i_right = "
-                      << irightside << ", FWHM = " << in_fwhm << ".\n";
-      }
-
-      vec_FWHM.push_back(in_fwhm);
-    }
-
-    // Create peak function
-    IPeakFunction_sptr peakfunc = boost::dynamic_pointer_cast<IPeakFunction>(
-          FunctionFactory::Instance().createFunction(m_peakFuncType));
-
-    double in_centre = peakX[i_centre - i_min];
-    double peakleftbound = peakX.front();
-    double peakrightbound = peakX.back();
-    PeakFittingRecord fitresult1 = multiFitPeakBackground(peakws, 0, input, spectrum, peakfunc, in_centre, g_height,vec_FWHM,
-                                                          peakleftbound, peakrightbound, user_centre);
-
-    // Fit upon observation
-    g_log.information("\nFitting peak with starting value from observation. ");
-
-    g_log.debug() << "[DB_Bkgd] Reset A0/A1 to: A0 = " << in_bg0 << ", A1 = " << in_bg1
-                  << ", A2 = " << in_bg2 << "\n";
-    m_backgroundFunction->setParameter("A0", in_bg0);
-    if (m_backgroundFunction->nParams() > 1)
-    {
-      m_backgroundFunction->setParameter("A1", in_bg1);
-      if (m_backgroundFunction->nParams() > 2)
-        m_backgroundFunction->setParameter("A2", in_bg2);
-    }
-
-    in_centre = g_centre;
-    peakleftbound = peakX[i_peakmin]; //g_centre - 3*g_fwhm;
-    peakrightbound = peakX[i_peakmax]; //g_centre + 3*g_fwhm;
-    vec_FWHM.clear();
-    vec_FWHM.push_back(g_fwhm);
-    PeakFittingRecord fitresult2 = multiFitPeakBackground(peakws, 0, input, spectrum, peakfunc, in_centre, g_height,vec_FWHM,
-                                                          peakleftbound, peakrightbound, user_centre);
-
-    // Compare results and add result to row
-    double windowsize = rawX[i_max] - rawX[i_min];
-    processFitResult(fitresult1, fitresult2, peakfunc, m_backgroundFunction, spectrum, i_min, i_max, windowsize);
-
-    return;
-  }
-
-  //----------------------------------------------------------------------------------------------
-  /** Fit a single peak with given peak parameters as starting point
-    * @param purepeakws :: data workspace containg peak with background removed
-    * @param purepeakindex :: workspace index for purepeakws
-    * @param dataws :: raw data workspace
-    * @param datawsindex :: workspace index of the spectrum in raw data workspace
-    * @param peak :: peak function to fit
-    * @param in_centre :: starting value of peak centre
-    * @param in_height :: starting value of peak height
-    * @param in_fhwm :: starting value of peak width
-    * @param peakleftboundary :: left boundary of peak
-    * @param peakrightboundary :: right boundary of peak
-    * @param user_centre :: peak centre input by user
-    */
-  PeakFittingRecord FindPeaks::multiFitPeakBackground(MatrixWorkspace_sptr purepeakws, size_t purepeakindex,
-                                                      MatrixWorkspace_sptr dataws, size_t datawsindex,
-                                                      IPeakFunction_sptr peak,
-                                                      double in_centre, double in_height, std::vector<double> in_fwhms,
-                                                      double peakleftboundary, double peakrightboundary, double user_centre)
-  {
-#if 0
-    g_log.information() << "Fit peak with " << in_fwhms.size() << " starting sigmas.\n";
-    if (in_fwhms.size() == 0)
-    {
-      std::stringstream errss;
-      errss << "Caller input an empty vector for sigma for peak near " << in_centre;
-      g_log.error(errss.str());
-      throw std::runtime_error(errss.str());
-    }
-
-    // Define some data structure
-    std::vector<double> vecRwp;
-    std::vector<std::map<std::string, double> > vecParameters;
-
-    // Create composite function
-    CompositeFunction_sptr compfunc(new CompositeFunction());
-    compfunc->addFunction(peak);
-    compfunc->addFunction(m_backgroundFunction);
-
-    // Fit PEAK function without background
-    std::string peakcentreconstraint = makePeakCentreConstraint(peak, peakleftboundary, peakrightboundary, false);
-    double startx = purepeakws->readX(purepeakindex)[0];
-    double endx = purepeakws->readX(purepeakindex).back();
-
-    for (size_t i = 0; i < in_fwhms.size(); ++i)
-    {
-      // (Re)set peak parameters
-      peak->setCentre(in_centre);
-      peak->setHeight(in_height);
-      peak->setFwhm(in_fwhms[i]);
-
-      // double startx = in_centre - 2.*in_fwhms[i];
-      // double endx = in_centre + 2.*in_fwhms[i];
-
-      double in_rwp;
-      double rwp1 = fitPeakBackgroundFunction(peak, purepeakws, purepeakindex, startx, endx, peakcentreconstraint,
-                                              in_rwp);
-
-      // Check boundaries.  GSL fit may not be able to limit the value in the boundary
-      std::string failreason;
-      if (rwp1 < DBL_MAX)
-      {
-        double f_height = peak->height();
-        double f_centre = peak->centre();
-
-        if (f_height <= 0.)
-        {
-          rwp1 = DBL_MAX;
-          failreason = "Negative peak height.";
-        }
-        else if (f_centre < peakleftboundary || f_centre > peakrightboundary)
-        {
-          rwp1 = DBL_MAX;
-          failreason = "Peak centre out of constraint range.";
-        }
-        else if (m_usePeakPositionTolerance)
-        {
-          if (fabs(f_centre - user_centre) > m_peakPositionTolerance)
-          {
-            rwp1 = DBL_MAX;
-            failreason = "Peak centre out of tolerance";
-          }
-        }
-      }
-      else
-      {
-        failreason = "(Single-step) Fit returns a DBL_MAX.";
-      }
-
-      vecRwp.push_back(rwp1);
-      std::map<std::string, double> parameters = getFunctionParameters(peak);
-      vecParameters.push_back(parameters);
-
-      // Debug output
-      std::stringstream dbss;
-      dbss << "\tFit pure peak (result).  Starting Sigma = " << in_fwhms[i] << ": Rwp = " << rwp1 << ", "
-           << "Centre = " << peak->centre() << ", Height = " << peak->height() << ", Sigma = "
-           << peak->fwhm() << ". ";
-      if (failreason.size() > 0)
-        dbss << "Cause of failure: " << failreason;
-      g_log.debug(dbss.str());
-    }
-
-    // Set again to best result so far
-    int bestindex = getBestResult(vecRwp);
-    if (bestindex < 0 && vecParameters.size() > 0)
-    {
-      // All fit attempts are failed.  Return with a FAIL record
-      g_log.debug("Failed to fit peak without background. ");
-      PeakFittingRecord failrecord;
-      std::map<std::string, double> bkgdmap0 = getFunctionParameters(m_backgroundFunction);
-      failrecord.set(DBL_MAX, vecParameters[0], bkgdmap0);
-      return failrecord;
-    }
-    else
-    {
-      if (vecParameters.size() == 0)
-      {
-        g_log.error("Vector of parameters has size 0.  It is a very unlikely situation.");
-        throw std::runtime_error("Vector of parameters has size 0.  It is a very unlikely situation.");
-      }
-    }
-
-    // Fit is good.
-    setFunctionParameterValue(peak, vecParameters[bestindex]);
-    g_log.information() << "Best fit result is No. " << bestindex << " with guess sigma = "
-                        << in_fwhms[bestindex] << ".\n";
-
-    // Fit background with better esitmation on peak (: m_backgroundFunction)
-    //   Unfix background parameters
-    g_log.information("\tFit background from fitted peak.");
-    size_t numbkgdparams = m_backgroundFunction->nParams();
-    for (size_t i = 0; i < numbkgdparams; ++i)
-      m_backgroundFunction->unfix(i);
-
-    const MantidVec& rawX = dataws->readX(datawsindex);
-    const MantidVec& rawY = dataws->readY(datawsindex);
-    const MantidVec& rawE = dataws->readE(datawsindex);
-    int ileft = getVectorIndex(rawX, peak->centre()-3.0*peak->fwhm());
-    int iright = getVectorIndex(rawX, peak->centre()+3.0*peak->fwhm());
-    int i_min = getVectorIndex(rawX, purepeakws->readX(purepeakindex)[0]);
-    int i_max = getVectorIndex(rawX, purepeakws->readX(purepeakindex).back());
-    double bkgdchi2;  // in_bg0, in_bg1, in_bg2,
-    g_log.debug() << "F1119 Fit background: iLeft = " << ileft << ", iRight = " << iright
-                  << ", iMin = " << i_min << ", iMax = " << i_max << ".\n";
-    bool goodfit = fitBackground(rawX, rawY, rawE,  ileft, iright, i_min, i_max, bkgdchi2);
-    if (!goodfit)
-    {
-      g_log.warning("Fitting background by excluding peak failed.");
-    }
-    std::map<std::string, double> bkgdmap1 = getFunctionParameters(m_backgroundFunction);
-
-    // Fit with new background and every data points
-    peakcentreconstraint = makePeakCentreConstraint(peak, peakleftboundary, peakrightboundary, true);
-    double rwp1best;
-    // double startx = peak->centre()-2.*peak->fwhm();
-    // double endx = peak->centre()+2.*peak->fwhm();
-    double rwp2 = fitPeakBackgroundFunction(compfunc, dataws, datawsindex, startx, endx, peakcentreconstraint,
-                                            rwp1best);
-    std::string failreason;
-    if (rwp2 < DBL_MAX)
-    {
-      double f_height = peak->height();
-      double f_centre = peak->centre();
-
-      if (f_height <= 0.)
-      {
-        rwp2 = DBL_MAX;
-        failreason = "Negative peak height.";
-      }
-      else if (f_centre < peakleftboundary || f_centre > peakrightboundary)
-      {
-        rwp2 = DBL_MAX;
-        failreason = "Peak centre out of constraint range.";
-      }
-      else if (m_usePeakPositionTolerance)
-      {
-        if (fabs(f_centre - user_centre) > m_peakPositionTolerance)
-        {
-          rwp2 = DBL_MAX;
-          failreason = "Peak centre out of tolerance";
-        }
-      }
-    }
-    else
-    {
-      failreason = "(Single-step) Fit returns a DBL_MAX.";
-    }
-
-    g_log.debug() << "[Fx418] Fit (2) failed due to reason " << failreason << ".\n";
-
-    std::map<std::string, double> parameters = getFunctionParameters(peak);
-    std::map<std::string, double> bkgdmap2 = getFunctionParameters(m_backgroundFunction);
-    vecParameters.push_back(parameters);
-#else
-
-    // FIXME - Replace by FitPeak()
-    fitPeak();
-
 #endif
-
-    PeakFittingRecord frd;
-    if (rwp1best < rwp2)
-    {
-      frd.set(rwp1best, vecParameters[bestindex], bkgdmap1);
-    }
-    else
-    {
-      frd.set(rwp2, vecParameters.back(), bkgdmap2);
-    }
-
-    return frd;
-  } // END-FUNCTION: fitPeakHighBackground()
+  }
 
   //----------------------------------------------------------------------------------------------
   /** Get function parameters
     * @param func :: an IFunction object
     * @return :: a map having pairs of string (parameter name) and double (parameter value)
-    */
+
   std::map<std::string, double> FindPeaks::getFunctionParameters(IFunction_sptr func)
   {
     std::map<std::string, double> parammap;
@@ -1562,12 +1189,11 @@ namespace Algorithms
 
     return parammap;
   }
-
+ */
   //----------------------------------------------------------------------------------------------
   /** Set parameters values to a function via a map
     * @param function :: IFunction object
     * @param parvalues :: map for string (parameter name) and double (parameter value)
-    */
   void FindPeaks::setFunctionParameterValue(API::IFunction_sptr function, std::map<std::string, double> parvalues)
   {
     std::map<std::string, double>::iterator piter;
@@ -1580,7 +1206,7 @@ namespace Algorithms
 
     return;
   }
-
+    */
 
   //----------------------------------------------------------------------------------------------
   /** Compare 2 fit results and record the better one in output table workspace
@@ -1592,7 +1218,6 @@ namespace Algorithms
     * @param imin :: index of peak's left boundary point in input workspace
     * @param imax :: index of peak's right boundary point in input workspace
     * @param windowsize :: size of the window (range) for fitting the peak
-    */
   void FindPeaks::processFitResult(PeakFittingRecord& r1, PeakFittingRecord& r2, IPeakFunction_sptr peak,
                                    IFunction_sptr bkgdfunc, size_t spectrum, size_t imin, size_t imax, double windowsize)
   {
@@ -1675,12 +1300,11 @@ namespace Algorithms
 
     return;
   }
-
+    */
 
   //----------------------------------------------------------------------------------------------
   /** Find the index of the best Rwp in a vector for Rwps
     * @param vecRwp :: vector of double for Rwp
-    */
   int FindPeaks::getBestResult(std::vector<double> vecRwp)
   {
     // Find best Rwp
@@ -1697,14 +1321,13 @@ namespace Algorithms
 
     return bestrwpindex;
   }
-
+    */
   //----------------------------------------------------------------------------------------------
   /** make boundary/contraint string on peak's centre
     * @param peak :: Functon to put boundary on
     * @param peakleftboundary :: left boundary of peak centre
     * @param peakrightboundary :: right boundary of peak centre
     * @param composite :: indicate whether peak is a pure peak function or a composite function
-    */
   std::string FindPeaks::makePeakCentreConstraint(IFunction_sptr peak, double peakleftboundary,
                                                   double peakrightboundary, bool composite)
   {
@@ -1751,7 +1374,7 @@ namespace Algorithms
 
     return bcss.str();
   }
-
+    */
 
 
   //----------------------------------------------------------------------------------------------
@@ -1767,7 +1390,7 @@ namespace Algorithms
     * @param error :: reason for estimating peak parameters error.
     */
   std::string FindPeaks::estimatePeakParameters(const MantidVec& vecX, const MantidVec& vecY,
-                                         size_t i_min, size_t i_max, double& centre, double& height, double& fwhm)
+                                          size_t i_min, size_t i_max, double& centre, double& height, double& fwhm)
   {
     // Search for maximum
     size_t icentre = i_min;
@@ -2088,140 +1711,7 @@ namespace Algorithms
   }
 
   //----------------------------------------------------------------------------------------------
-  /** Check the GSL fit status message to determine whether the fit is successful or not
-    * @param fitstatus :: string of status returned from Fit
-    */
-  bool FindPeaks::isFitSuccessful(std::string fitstatus)
-  {
-    // Additional message other than 'success'
-    bool allowedfailure = (fitstatus.find("cannot") < fitstatus.size())
-        && (fitstatus.find("tolerance") < fitstatus.size());
-
-    // Success or 'cannot...tolerance'?
-    bool isfitgood;
-    if (fitstatus.compare("success") == 0 || allowedfailure)
-    {
-      isfitgood = true;
-    }
-    else
-    {
-      isfitgood = false;
-      g_log.debug() << "Fit Status = " << fitstatus << ".  Not to update fit result" << std::endl;
-    }
-
-    return isfitgood;
-  }
-
-  //----------------------------------------------------------------------------------------------
-  /** Check the results of the fit algorithm to see if they make sense and update the best parameters.
-    * @param fitAlg :: algorithm object
-    * @param bestEffparams :: vector of double for best effective parameters
-    * @param bestRarparams :: vector double for raw function parameters
-    * @param mincost :: chi square
-    * @param expPeakPos :: double as expected peak position
-    * @param expPeakHeight :: double as expected peak height
-    */
-  void FindPeaks::updateFitResults(API::IAlgorithm_sptr fitAlg, std::vector<double> &bestEffparams,
-                                   std::vector<double> &bestRawparams, double &mincost, const double expPeakPos,
-                                   const double expPeakHeight)
-  {
-    // check the results of the fit status
-    std::string fitStatus = fitAlg->getProperty("OutputStatus");
-    bool isfitgood = isFitSuccessful(fitStatus);
-    if (!isfitgood)
-      return;
-
-    // check that chi2 got better
-    const double chi2 = fitAlg->getProperty("OutputChi2overDoF");
-    g_log.debug() << "Fit Status = " << fitStatus << ", chi2 = " << chi2 << std::endl;
-    if (chi2 > mincost)
-    {
-      return;
-    }
-
-    // get out the parameter names
-    std::vector<double> tempEffectiveParams, tempRawParams;
-    getComponentFunctions(fitAlg->getProperty("Function"), tempEffectiveParams, tempRawParams);
-
-    // check the height
-    double height = tempEffectiveParams[2];
-    if (height <= 0)
-    { // Height must be strictly positive
-      g_log.debug() << "Fitted height = " << height << ".  It is a wrong fit!" << "\n";
-      return;
-    }
-
-    // check the height tolerance
-    if (m_usePeakHeightTolerance && height > expPeakHeight * m_peakHeightTolerance)
-    {
-      g_log.debug() << "Failed peak height tolerance test\n";
-      return;
-    }
-
-    // check the peak position tolerance
-    if (m_usePeakPositionTolerance
-        && fabs(tempEffectiveParams[0] - expPeakPos) > m_peakPositionTolerance)
-    {
-      g_log.debug() << "Faile peak position tolerance test\n";
-      return;
-    }
-
-    // check for NaNs
-    for (std::vector<double>::const_iterator it = tempEffectiveParams.begin();
-         it != tempEffectiveParams.end(); ++it)
-    {
-      if ((*it) != (*it))
-      {
-        g_log.debug() << "NaN detected in the results of peak fitting. Peak ignored.\n";
-        return;
-      }
-    }
-    for (std::vector<double>::const_iterator it = tempRawParams.begin(); it != tempRawParams.end();
-         ++it)
-    {
-      if ((*it) != (*it))
-      {
-        g_log.debug() << "NaN detected in the results of peak fitting. Peak ignored.\n";
-        return;
-      }
-    }
-
-    // all the checks passed, update the parameters
-    mincost = chi2;
-    bestEffparams.assign(tempEffectiveParams.begin(), tempEffectiveParams.end());
-    bestRawparams.assign(tempRawParams.begin(), tempRawParams.end());
-  }
-
-  //----------------------------------------------------------------------------------------------
-  /** Create a background function
-    * @param a0, a1, a2  Variables dependent on background order.
-    */
-  IFunction_sptr FindPeaks::createBackgroundFunction(const double a0, const double a1, const double a2)
-  {
-    // FIXME  Need to have a uniformed routine to name background function
-    std::string backgroundposix("");
-    if (m_backgroundType.compare("Quadratic"))
-    {
-      backgroundposix = "Background";
-    }
-    auto background = API::FunctionFactory::Instance().createFunction(
-          m_backgroundType + backgroundposix);
-    int order = this->getBackgroundOrder();
-    background->setParameter("A0", a0);
-    if (order > 0)
-    {
-      background->setParameter("A1", a1);
-      if (order > 1)
-        background->setParameter("A2", a2);
-    }
-
-    return background;
-  }
-
-
-
-  //----------------------------------------------------------------------------------------------
-  /** Create a function for fitting.
+  /** Create functions and related variables
     * @param height Height
     * @param centre Centre
     * @param sigma Sigma
@@ -2229,52 +1719,32 @@ namespace Algorithms
     * @param withPeak If this is set to false then return only a background function.
     * @return The requested function to fit.
     */
-  IFunction_sptr FindPeaks::createFunction(const double height, const double centre,
-                                           const double sigma, const double a0, const double a1, const double a2,
-                                           const bool withPeak)
+  void FindPeaks::createFunctions()
   {
-    // setup the background
-    // FIXME  Need to have a uniformed routine to name background function
+    // Setup the background
+    // FIXME (No In This Ticket)  Need to have a uniformed routine to name background function
     std::string backgroundposix("");
     if (m_backgroundType.compare("Quadratic"))
     {
+      // FlatBackground, LinearBackground, Quadratic
       backgroundposix = "Background";
     }
     auto background = API::FunctionFactory::Instance().createFunction(
           m_backgroundType + backgroundposix);
-    int order = this->getBackgroundOrder();
-    background->setParameter("A0", a0);
-    if (order > 0)
-    {
-      background->setParameter("A1", a1);
-      if (order > 1)
-        background->setParameter("A2", a2);
-    }
 
-    // just return the background if there is no need for a peak
-    if (!withPeak)
-    {
-      return background;
-    }
+    m_bkgdParameterNames = background->getParameterNames();
 
-    // setup the peak
+    // Set up peak function
     auto tempPeakFunc = API::FunctionFactory::Instance().createFunction(m_peakFuncType);
     auto peakFunc = boost::dynamic_pointer_cast<IPeakFunction>(tempPeakFunc);
-    peakFunc->setHeight(height);
-    peakFunc->setCentre(centre);
-    peakFunc->setFwhm(sigma);
+    m_peakParameterNames = peakFunc->getParameterNames();
 
-    // put the two together and return
-    CompositeFunction* fitFunc = new CompositeFunction();
-    fitFunc->addFunction(peakFunc);
-    fitFunc->addFunction(background);
-
-    return boost::shared_ptr<IFunction>(fitFunc);
+    return;
   }
 
   //----------------------------------------------------------------------------------------------
   /** @return The order of the polynomial for the bacground fit.
-    */
+
   int FindPeaks::getBackgroundOrder()
   {
     if (m_backgroundType.compare("Linear") == 0)
@@ -2284,65 +1754,13 @@ namespace Algorithms
     else
       return 0;
   }
-
-  //----------------------------------------------------------------------------------------------
-  /** Calulate a function with given data range, and its goodness of fit, Rwp.
-    * Warning: use flat standard error 1.0 for fitting PEAKS
-    * @param function :: function object
-    * @param dataws :: data workspace
-    * @param wsindex :: workspace index in data workspace for function to fit
-    * @param startx :: x min
-    * @param endx :: x max
     */
-  double FindPeaks::calculateFunctionRwp(IFunction_sptr function, MatrixWorkspace_sptr dataws,
-                                         size_t wsindex, double startx, double endx)
-  {
-    // Construct a new vector
-    const MantidVec& vecX = dataws->readX(wsindex);
-    const MantidVec& vecY = dataws->readY(wsindex);
-
-    std::vector<double>::const_iterator beginX, endX, beginY, endY;
-    beginX = std::lower_bound(vecX.begin(), vecX.end(), startx);
-    endX = std::lower_bound(vecX.begin(), vecX.end(), endx);
-    beginY = vecY.begin() + static_cast<int>(beginX-vecX.begin());
-    endY = vecY.begin() + static_cast<int>(endX-vecX.begin());
-
-    std::vector<double> partX, partY;
-    partX.assign(beginX, endX);
-    partY.assign(beginY, endY);
-
-    // Calculate function
-    FunctionDomain1DVector domain(partX);
-    FunctionValues values(domain);
-    function->function(domain, values);
-
-    // Calculate Rwp
-    double sumnom = 0;
-    double sumdenom = 0;
-
-    size_t numpts = domain.size();
-    for (size_t i = 0; i < numpts; ++i)
-    {
-      double cal_i = values[i];
-      double obs_i = partY[i];
-      double sigma = 1.0;
-      double weight = 1.0/(sigma*sigma);
-      double diff = obs_i - cal_i;
-
-      sumnom += weight*diff*diff;
-      sumdenom += weight*obs_i*obs_i;
-    }
-    double rwp = std::sqrt(sumnom/sumdenom);
-
-    return rwp;
-  }
 
   //----------------------------------------------------------------------------------------------
   /** Add fitted function to a vector of all peak functions that are fitted
     * @param fitfunction :: function to get recorded
     * @param ileft :: index of peak's left boundary point in input workspace
     * @param iright :: index of peak's right boundary point in input workspace
-    */
   void FindPeaks::addFittedFunction(IFunction_sptr fitfunction, size_t ileft, size_t iright)
   {
     IFunction_sptr copyfunc = createFunction(0., 0., 0., 0., 0., 0., true);
@@ -2358,250 +1776,132 @@ namespace Algorithms
 
     return;
   }
+  */
 
-  //----------------------------------------------------------------------------------------------
-  /** Fit for background by creating a workspace excluding peak region
-    * Assumption: m_backgroundFunction has been set up with reasonable starting value for
-    *             background order parameters
-    * startX = in_centre - windowSize;
-    * endX = in_centre + windowSize;
-    * fitHightbackground(backgroundFunction, newX, newY, newE, startx, endx,
-    * @return :: chi-square
+  /** ??? ??? ???
     */
-  bool FindPeaks::fitBackground(const MantidVec& X, const MantidVec& Y, const MantidVec& E,
-                                size_t ileft, size_t iright, size_t imin, size_t imax,
-                                double& chi2)
+  void FindPeaks::findPeakBackground(const MatrixWorkspace_sptr& input, int spectrum, size_t i_min, size_t i_max,
+                                     std::vector<double>& vecBkgdParamValues, std::vector<size_t> vecpeakrange)
   {
-#if 0
-    // Store original information
-    size_t numparams = m_backgroundFunction->nParams();
-    double in_bg0 = m_backgroundFunction->getParameter("A0");
-    double in_bg1 = 0.;
-    if (numparams >= 2)
-      in_bg1 = m_backgroundFunction->getParameter("A1");
-    double in_bg2 = 0.;
-    if (numparams >= 3)
-      in_bg2 = m_backgroundFunction->getParameter("A2");
+    // FIXME - This is a new function to set to FindPeaks()
+    double bg0, bg1, bg2;
 
-    g_log.debug() << "F1120 Fit background Input: " << "A0 = " << in_bg0 << ", A1 = " << in_bg1
-                  << ", A2 = " << in_bg2 << ".  Range = " << X[ileft] << ", " << X[iright] << ".\n";
+    const MantidVec& vecX = input->readX(spectrum);
+    const MantidVec& vecY = input->readY(spectrum);
 
-    // Construct a workspace to fit for background.  The region within fit window is removed
-    std::vector<double> newX, newY, newE;
-    for (size_t i = imin; i <= imax; i++)
+    // Estimate background roughly for a failed case
+    estimateBackground(vecX, vecY, i_min, i_max, bg0, bg1, bg2);
+
+    // Call FindPeakBackground
+    IAlgorithm_sptr estimate = createChildAlgorithm("FindPeakBackground");
+    estimate->setProperty("InputWorkspace", input);
+    // The workspace index
+    std::vector<int> wivec;
+    wivec.push_back(spectrum);
+    estimate->setProperty("WorkspaceIndices", wivec);
+    //estimate->setProperty("SigmaConstant", 1.0);
+    // The workspace index
+    std::vector<double> fwvec;
+    fwvec.push_back(vecX[i_min]);
+    fwvec.push_back(vecX[i_max]);
+    estimate->setProperty("BackgroundType", m_backgroundType);
+    estimate->setProperty("FitWindow", fwvec);
+    estimate->executeAsChildAlg();
+    // Get back the result
+    Mantid::API::ITableWorkspace_sptr peaklist = estimate->getProperty("OutputWorkspace");
+
+    size_t i_peakmin, i_peakmax;
+    if (peaklist->rowCount() > 0)
     {
-      if (i > size_t(iright) || i < size_t(ileft))
-      {
-        newX.push_back(X[i]);
-        newY.push_back(Y[i]);
-        newE.push_back(E[i]);
-      }
-    }
-    size_t numpts = newX.size();
-
-    if (numpts < 3)
-    {
-      g_log.warning() << "Size of workspace to fit for background = " << newX.size()
-                      << ". It is too small to proceed. ";
-      g_log.warning() << "Input i_min = " << imin << ",i_max = " << imax << ", i_left = " << ileft
-                      << ", i_right = " << iright;
-
-      return false;
-    }
-
-    // Construct a background data workspace for fit
-    MatrixWorkspace_sptr bkgdWS =
-        API::WorkspaceFactory::Instance().create("Workspace2D", 1, newX.size(), newY.size());
-
-    MantidVec& wsX = bkgdWS->dataX(0);
-    MantidVec& wsY = bkgdWS->dataY(0);
-    MantidVec& wsE = bkgdWS->dataE(0);
-    for (size_t i = 0; i < newY.size(); i++)
-    {
-      wsX[i] = newX[i];
-      wsY[i] = newY[i];
-      wsE[i] = newE[i];
-    }
-
-    // Fit range
-    double startx = newX[0];
-    double endx = newX.back();
-
-    g_log.debug() << "Background Type = " << m_backgroundType << "  Function: "
-                  << m_backgroundFunction->asString() << "  StartX = "
-                  << startx << " EndX = " << endx << ".\n";
-
-    // Set up the background fitting
-    IAlgorithm_sptr fit;
-    try
-    {
-      fit = createChildAlgorithm("Fit", -1, -1, true);
-    }
-    catch (Exception::NotFoundError &)
-    {
-      std::stringstream errss;
-      errss << "The StripPeaks algorithm requires the CurveFitting library";
-      g_log.error(errss.str());
-      throw std::runtime_error(errss.str());
-    }
-
-    fit->setProperty("Function", m_backgroundFunction);
-    fit->setProperty("InputWorkspace", bkgdWS);
-    fit->setProperty("WorkspaceIndex", 0);
-    fit->setProperty("MaxIterations", 50);
-    fit->setProperty("StartX", startx);
-    fit->setProperty("EndX", endx);
-    fit->setProperty("Minimizer", m_minimizer);
-    fit->setProperty("CostFunction", "Least squares");
-
-    // Execute fit and get result of fitting background
-    fit->executeAsChildAlg();
-    if (!fit->isExecuted())
-    {
-      g_log.error("Fit for background is not executed. ");
-      throw std::runtime_error("Fit for background is not executed. ");
-    }
-
-    std::string fitStatus = fit->getProperty("OutputStatus");
-    m_backgroundFunction = fit->getProperty("Function");
-
-    g_log.debug() << "(HighBackground) Fit Background Function.  Fit Status = " << fitStatus
-                  << std::endl;
-
-    // Check fiting status
-    bool allowedfailure = fitStatus.find("cannot") > 0 && fitStatus.find("tolerance") > 0;
-
-    double bkgdchi2;
-    if (fitStatus.compare("success") == 0 || allowedfailure)
-    {
-      // good fit assumed
-      bkgdchi2 = fit->getProperty("OutputChi2overDoF");
+        if(peaklist->Int(0,1) >= i_min)i_peakmin = peaklist->Int(0,1) - i_min;
+        if(peaklist->Int(0,2) >= i_min)i_peakmax = peaklist->Int(0,2) - i_min - 1;
+        bg0 = peaklist->Double(0,3);
+        bg1 = peaklist->Double(0,4);
+        bg2 = peaklist->Double(0,5);
     }
     else
     {
-      // set background to zero background
-      // Create background function
-      m_backgroundFunction->setParameter("A0", in_bg0);
-      if (numparams >= 2)
-        m_backgroundFunction->setParameter("A1", in_bg1);
-      if (numparams >= 3)
-        m_backgroundFunction->setParameter("A2", in_bg2);
-
-      bkgdchi2 = DBL_MAX;
+      // If FindPeakBackground failed!
+      i_peakmin = i_min;
+      i_peakmax = i_max;
     }
 
-    chi2 = bkgdchi2;
-#else
-    // FIXME - Check whether there is anything that is not handled by FitPeak
-    throw runtime_error("Not Me");
-    fitBackgroudForNothing();
-#endif
+    // Set output
+    vecpeakrange.resize(2);
+    vecpeakrange[0] = i_peakmin;
+    vecpeakrange[1] = i_peakmax;
 
-    return true;
+    // FIXME - only need to getBackgroundOrder() once. Or set up a class variable at beginnning.
+    vecBkgdParamValues.resize(m_bkgdOrder+1);
+    vecBkgdParamValues[0] = bg0;
+    if (m_bkgdOrder >= 1)
+    {
+      vecBkgdParamValues[1] = bg1;
+      if (m_bkgdOrder >= 2)
+        vecBkgdParamValues[2] = bg2;
+    }
+
+    return;
   }
 
-  //----------------------------------------------------------------------------------------------
-  /** Fit a peak (and background) function
-    *
-    * @param peakbkgdfunc :: peak+background function (composite)
-    * @param dataws :: data workspace with data to fit
-    * @param wsindex :: workspace index of the spectrum
-    * @param startx :: x range
-    * @param endx :: x range
-    * @param constraint :: constraint in format of string
-    * @param init_rwp :: starting rwp
-    * @return RWP
-    */
-  double FindPeaks::fitPeakBackgroundFunction(IFunction_sptr peakbkgdfunc,
-                                              MatrixWorkspace_sptr dataws, size_t wsindex,
-                                              double startx, double endx, std::string constraint, double& init_rwp)
+  bool FindPeaks::callFitPeak(const MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvalues0,
+                              const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
+                              const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
+                              int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
+                              std::vector<double>& vec_fittedbkgdparvalues)
   {
-#if 0
-    // FIXME - Constraint is not used for better performance at this moment.
-    UNUSED_ARG(constraint);
 
-    if (!peakbkgdfunc)
-      throw std::runtime_error("FitPeakBackgroundFunction has a null peak input.");
-    else
-      g_log.debug() << "Function (to fit): " << peakbkgdfunc->asString() << "  From "
-                    << startx << "  to " << endx << ".\n";
+    IAlgorithm_sptr fitpeak = createChildAlgorithm("FitPeak");
+    fitpeak->initialize();
 
-    std::stringstream dbss;
-    dbss << "Fit data workspace spectrum " << wsindex << ".  Parameters: ";
-    std::vector<std::string> comparnames = peakbkgdfunc->getParameterNames();
-    for (size_t i = 0; i < comparnames.size(); ++i)
-      dbss << comparnames[i] << ", ";
-    g_log.debug(dbss.str());
+    fitpeak->setProperty("InputWorkspace", dataws);
+    fitpeak->setProperty("WorkspaceIndex", wsindex);
+    fitpeak->setProperty("PeakFunctionType", m_peakFuncType);
+    fitpeak->setProperty("PeakParameterNames", m_peakParameterNames);
+    fitpeak->setProperty("PeakParameterValues", vec_peakparvalues0);
+    fitpeak->setProperty("BackgroundType", m_backgroundType);
+    fitpeak->setProperty("BackgroundParameterNames", m_bkgdParameterNames);
+    fitpeak->setProperty("BackgroundParameterValues", vec_bkgdparvalues0);
+    fitpeak->setProperty("FitWindow", vec_fitwindow);
+    fitpeak->setProperty("PeakRange", vec_peakrange);
+    fitpeak->setProperty("FitBackgroundFirst", m_highBackground);
+    // FIXME - Make this one right! Error now
+    fitpeak->setProperty("RawParams", m_rawPeaksTable);
+    fitpeak->setProperty("MinGuessedPeakWidth", minGuessedFWHM);
+    fitpeak->setProperty("MaxGuessedPeakWidth", maxGuessFWHM);
+    fitpeak->setProperty("GuessedPeakWidthStep", guessedFWHMStep);
+    fitpeak->setProperty("PeakPositionTolerance",m_peakPositionTolerance);
+    fitpeak->setProperty("CostFunction", m_costFunction);
+    fitpeak->setProperty("Minimizer", m_minimizer);
 
-    // Starting chi-square
-    init_rwp = calculateFunctionRwp(peakbkgdfunc, dataws, wsindex, startx, endx);
+    fitpeak->execute();
+    if (!fitpeak->isExecuted())
+      throw std::runtime_error("FitPeak fails to execute");
 
-    // Create Child Algorithm Fit
-    IAlgorithm_sptr gfit;
-    try
-    {
-      gfit = createChildAlgorithm("Fit", -1, -1, true);
-    }
-    catch (Exception::NotFoundError &)
-    {
-      g_log.error("The FindPeaks algorithm requires the CurveFitting library");
-      throw std::runtime_error("The FindPeaks algorithm requires the CurveFitting library");
-    }
+    vec_fittedpeakparvalues = fitpeak->getProperty("FittedPeakParameterValues");
+    vec_fittedbkgdparvalues = fitpeak->getProperty("FittedBackgroundParameterValues");
 
-    // Set up fit
-    gfit->setProperty("Function", peakbkgdfunc);
-    gfit->setProperty("InputWorkspace", dataws);
-    gfit->setProperty("WorkspaceIndex", static_cast<int>(wsindex));
-    gfit->setProperty("MaxIterations", 50);
-    gfit->setProperty("StartX", startx);
-    gfit->setProperty("EndX", endx);
-    //if (constraint.size() > 0)
-    // gfit->setProperty("Constraints", constraint);
-    gfit->setProperty("Minimizer", m_minimizer);
-    gfit->setProperty("CostFunction", "Least squares");
+    MatrixWorkspace_sptr outws = fitpeak->getProperty("OutputWorkspace");
+    TableWorkspace_sptr partablews = fitpeak->getProperty("ParameterTableWorkspace");
 
-    // Fit
-    gfit->executeAsChildAlg();
-    if (!gfit->isExecuted())
-    {
-      g_log.error("Fit is not executed correctly.");
-      return DBL_MAX;
-    }
-    else
-    {
-      g_log.debug("Fit is executed. ");
-    }
+    // FIXME - How to get fitsuccess?
+    return fitsuccess;
+  }
 
-    // Analyze result
-    std::string fitpeakstatus = gfit->getProperty("OutputStatus");
-    bool isfitgood = isFitSuccessful(fitpeakstatus);
+  std::vector<double> FindPeaks::getStartingPeakValues()
+  {
+    // FIXME - ASAP
+    std::vector<double> vec_value;
 
-    double final_rwp;
-    if (isfitgood)
-    {
-      final_rwp = calculateFunctionRwp(peakbkgdfunc, dataws, wsindex, startx, endx);
+    return vec_value;
+  }
 
-      std::stringstream dbss;
+  std::vector<double> FindPeaks::getStartingBkgdValues()
+  {
+    // FIXME - ASAP
+    std::vector<double> vec_value;
 
-      std::vector<std::string> parnames = peakbkgdfunc->getParameterNames();
-      dbss << "[Fx357] Fit Peak (+background) Status = " << fitpeakstatus << ". Starting Rwp = "
-           << init_rwp << ".  Final Rwp = " << final_rwp << ".\n";
-      for (size_t i = 0; i < parnames.size(); ++i)
-        dbss << parnames[i] << "\t = " << peakbkgdfunc->getParameter(parnames[i]) << "\n";
-      g_log.debug(dbss.str());
-    }
-    else
-    {
-      final_rwp = DBL_MAX;
-    }
-
-#else
-    // FIXME - Find out the caller of this function.
-    // My wild guess is that this method is part of FitPeak
-    fitPeak();
-#endif
-
-    return final_rwp;
+    return vec_value;
   }
 
 

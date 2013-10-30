@@ -119,10 +119,10 @@ private:
   void fitPeakInWindow(const API::MatrixWorkspace_sptr &input, const int spectrum, const double centre, const double xmin, const double xmax);
 
   /// Fit peak by given/guessed FWHM
-  void fitPeak(const API::MatrixWorkspace_sptr &input, const int spectrum, const double center_guess, const int FWHM_guess);
+  void fitPeakGivenFWHM(const API::MatrixWorkspace_sptr &input, const int spectrum, const double center_guess, const int fitWidth);
 
-  /// Fit peak
-  void fitPeak(const API::MatrixWorkspace_sptr &input, const int spectrum, const int i_min, const int i_max, const int i_centre);
+  /// Fit peak: this is a basic peak fit function as a root function for all different type of user input
+  void fitSinglePeak(const API::MatrixWorkspace_sptr &input, const int spectrum, const int i_min, const int i_max, const int i_centre);
 
   void fitPeakHighBackground(const API::MatrixWorkspace_sptr &input, const size_t spectrum, int i_centre, int i_min, int i_max,
                              double &in_bg0, double &in_bg1, double &in_bg2, int i_peakmin, int i_peakmax);
@@ -137,8 +137,8 @@ private:
 
   void updateFitResults(API::IAlgorithm_sptr fitAlg, std::vector<double> &bestEffparams, std::vector<double> &bestRawparams, double &mincost, const double expPeakPos, const double expPeakHeight);
 
-  API::IFunction_sptr createFunction(const double height, const double centre, const double sigma, const double a0, const double a1, const double a2, const bool withPeak = true);
-  int getBackgroundOrder();
+  void createFunctions();
+  // int getBackgroundOrder();
   /// Create a background function
   API::IFunction_sptr createBackgroundFunction(const double a0, const double a1, const double a2);
 
@@ -191,6 +191,29 @@ private:
   /// Check the GSL fit status message to determine whether the fit is successful or not
   bool isFitSuccessful(std::string fitstatus);
 
+
+  /// Generate a table workspace for output peak parameters
+  void generateOutputPeakParameterTable();
+
+  std::vector<double> getStartingPeakValues();
+  std::vector<double> getStartingBkgdValues();
+
+  void findPeakBackground(const API::MatrixWorkspace_sptr& input, int spectrum, size_t i_min, size_t i_max,
+                          std::vector<double>& vecBkgdParamValues, std::vector<size_t> vecpeakrange);
+
+  bool callFitPeak(const API::MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvlaues0,
+                   const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
+                   const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
+                   int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
+                   std::vector<double>& vec_fittedbkgdparvalues);
+
+  std::vector<std::string> m_peakParameterNames;
+  std::vector<std::string> m_bkgdParameterNames;
+  int m_bkgdOrder;
+  std::string m_costFunction;
+
+
+
   /// The number of smoothing iterations. Set to 5, the optimum value according to Mariscotti.
   static const int g_z = 5;
   
@@ -217,7 +240,7 @@ private:
 
   // Functions for reused 
   API::IFunction_sptr m_backgroundFunction;
-  API::IFunction_sptr m_peakAndBackgroundFunction;
+  API::IPeakFunction_sptr m_peakFunction;
 
   int m_minGuessedPeakWidth;
   int m_maxGuessedPeakWidth;
