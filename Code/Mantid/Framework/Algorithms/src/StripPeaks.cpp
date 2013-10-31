@@ -143,6 +143,8 @@ API::ITableWorkspace_sptr StripPeaks::findPeaks(API::MatrixWorkspace_sptr WS)
   infoss << "\t Tolerance       = " << tolerance << ";\n";
   infoss << "\t HighBackground  = " << highbackground << ";\n";
   infoss << "\t BackgroundType  = " << backgroundtype << ";\n";
+  infoss << "\t Highbackground  = " << highbackground << "; \n";
+  infoss << "\t PeakPositoinTol = " << peakpostol << "; \n";
   infoss << "\t Peak positions  = ";
   for (size_t i = 0; i < peakpositions.size(); ++i)
   {
