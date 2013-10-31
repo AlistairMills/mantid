@@ -81,7 +81,7 @@ public:
     loader.execute();
   }
 
-  void PtestExecGivenPeaksList()
+  void NtestExecGivenPeaksList()
   {
     this->LoadPG3_733();
 
