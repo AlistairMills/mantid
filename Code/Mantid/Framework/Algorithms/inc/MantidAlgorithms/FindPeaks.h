@@ -53,31 +53,6 @@ namespace Algorithms
     Code Documentation is available at: <http://doxygen.mantidproject.org>
 */
 
-class PeakFittingRecord
-{
-public:
-  /// Constructor
-  PeakFittingRecord();
-  /// Destructor
-  ~PeakFittingRecord();
-  /// Set parameters
-  void set(double chi2, const std::map<std::string, double>& peakparammap, const std::map<std::string, double>&  bkgdparammap);
-  /// Get chi-square
-  double getChiSquare() { return m_goodness; }
-  /// Get peak parameters
-  std::map<std::string, double> getPeakParameters() { return m_peakParameterMap;}
-  /// Get background parameters
-  std::map<std::string, double> getBackgroundParameters() { return m_bkgdParameterMap; }
-
-private:
-  /// chi-square
-  double m_goodness;
-  /// parameter value
-  std::map<std::string, double> m_peakParameterMap;
-  /// parameter value
-  std::map<std::string, double> m_bkgdParameterMap;
-};
-
 class DLLExport FindPeaks : public API::Algorithm
 {
 public:
@@ -130,7 +105,10 @@ private:
   void fitPeakOneStep(const API::MatrixWorkspace_sptr &input, const int spectrum, const int& i0, const int& i2, const int& i4,
       const double& in_bg0, const double& in_bg1, const double& in_bg2);
 
-  void addInfoRow(const size_t spectrum, const std::vector<double> &params, const std::vector<double> &paramsRaw, const double mincost, bool error);
+  /// Add a new row in output TableWorkspace containing information of the fitted peak+background
+  void addInfoRow(const size_t spectrum, const std::vector<double> &peakparams,
+                  const std::vector<double> &bkgdparams, const bool isoutputraw,
+                  const double mincost);
 
   /// Add the fit record (failure) to output workspace
   void addNonFitRecord(const size_t spectrum);
@@ -156,12 +134,6 @@ private:
   /// Set parameters to a peak function
   void setParameters(API::IFunction_sptr peak, double height, double centre, double sigma, double centre_lowerbound, double centre_upperbound);
 
-  /// Fit peak with multiple iterations
-  PeakFittingRecord multiFitPeakBackground(API::MatrixWorkspace_sptr purepeakws, size_t purepeakindex,
-                                           API::MatrixWorkspace_sptr dataws, size_t datawsindex,
-                                           API::IPeakFunction_sptr peak,
-                                           double in_centre, double in_height, std::vector<double> in_fwhms,
-                                           double peakleftboundary, double peakrightboundary, double user_centre);
 
   /// Set parameters values to a peak function
   void setFunctionParameterValue(API::IFunction_sptr function, std::map<std::string, double> parvalues);
@@ -179,10 +151,6 @@ private:
   double calculateFunctionRwp(API::IFunction_sptr function, API::MatrixWorkspace_sptr dataws,
                               size_t wsindex, double startx, double endx);
 
-  /// Compare 2 fit results and record the better one
-  void processFitResult(PeakFittingRecord& r1, PeakFittingRecord& r2, API::IPeakFunction_sptr peak, API::IFunction_sptr bkgdfunc, size_t spectrum,
-                        size_t imin, size_t imax, double windowsize);
-
   /// Get best result from a set of fitting result
   int getBestResult(std::vector<double> vecRwp);
 
@@ -199,9 +167,9 @@ private:
   std::vector<double> getStartingBkgdValues();
 
   void findPeakBackground(const API::MatrixWorkspace_sptr& input, int spectrum, size_t i_min, size_t i_max,
-                          std::vector<double>& vecBkgdParamValues, std::vector<size_t> vecpeakrange);
+                          std::vector<double>& vecBkgdParamValues, std::vector<double>& vecpeakrange);
 
-  bool callFitPeak(const API::MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvlaues0,
+  double callFitPeak(const API::MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvlaues0,
                    const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
                    const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
                    int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
