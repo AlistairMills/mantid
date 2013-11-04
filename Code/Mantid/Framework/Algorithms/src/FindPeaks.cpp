@@ -88,6 +88,11 @@ namespace Algorithms
     declareProperty(new WorkspaceProperty<>("InputWorkspace", "", Direction::Input),
                     "Name of the workspace to search");
 
+    auto mustBeNonNegative = boost::make_shared<BoundedValidator<int> >();
+    mustBeNonNegative->setLower(0);
+    declareProperty("WorkspaceIndex", EMPTY_INT(), mustBeNonNegative,
+                    "If set, only this spectrum will be searched for peaks (otherwise all are)");
+
     auto min = boost::make_shared<BoundedValidator<int> >();
     min->setLower(1);
     // The estimated width of a peak in terms of number of channels
@@ -114,11 +119,6 @@ namespace Algorithms
     bkgdtypes.push_back("Quadratic");
     declareProperty("BackgroundType", "Linear", boost::make_shared<StringListValidator>(bkgdtypes),
                     "Type of Background.");
-
-    auto mustBeNonNegative = boost::make_shared<BoundedValidator<int> >();
-    mustBeNonNegative->setLower(0);
-    declareProperty("WorkspaceIndex", EMPTY_INT(), mustBeNonNegative,
-                    "If set, only this spectrum will be searched for peaks (otherwise all are)");
 
     declareProperty("HighBackground", true, "Relatively weak peak in high background");
 
