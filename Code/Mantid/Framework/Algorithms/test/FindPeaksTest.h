@@ -8,11 +8,15 @@
 
 #include "MantidAPI/WorkspaceFactory.h"
 
+#include "MantidDataObjects/TableWorkspace.h"
 #include "MantidAPI/MatrixWorkspace.h"
+#include "MantidAPI/TableRow.h"
 #include "MantidDataHandling/LoadNexusProcessed.h"
 #include "MantidDataHandling/LoadInstrument.h"
 #include "MantidDataObjects/Workspace2D.h"
 
+
+#include "MantidAPI/FrameworkManager.h"
 
 
 #include <fstream>
@@ -21,6 +25,8 @@ using Mantid::Algorithms::FindPeaks;
 
 using namespace Mantid::API;
 using namespace Mantid::DataObjects;
+
+using namespace std;
 
 class FindPeaksTest : public CxxTest::TestSuite
 {
@@ -43,36 +49,59 @@ public:
   }
 
   /// Test find a single peak with given position
-  void ING_testFindSinglePeakGivenPeaksList()
+  void testFindSinglePeakGivenPeaksList()
   {
+    FrameworkManager::Instance();
+
     MatrixWorkspace_sptr dataws = getSinglePeakData();
     std::string wsname("SinglePeakTestData");
     AnalysisDataService::Instance().addOrReplace(wsname, dataws);
 
-    FindPeaks finder;
-    finder.initialize();
+    FindPeaks finder1;
+    finder1.initialize();
+    TS_ASSERT(finder1.isInitialized());
 
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("InputWorkspace", wsname));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("WorkspaceIndex","0"));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("PeakPositions", "1.2356"));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("FitWindows", "1.21, 1.50"));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("PeakFunction", "Gaussian"));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("BackgroundType", "Quadratic"));
-    TS_ASSERT_THROWS_NOTHING( finder.setProperty("HighBackground", true));
-    TS_ASSERT_THROWS_NOTHING( finder.setProperty("MinGuessedPeakWidth", 2));
-    TS_ASSERT_THROWS_NOTHING( finder.setProperty("MaxGuessedPeakWidth", 10));
-    TS_ASSERT_THROWS_NOTHING( finder.setProperty("PeakPositionTolerance", 0.05));
-    TS_ASSERT_THROWS_NOTHING( finder.setProperty("RawPeakParameters", true));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("CostFunction", "Chi-Square"));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("Minimizer", "Levenberg-MarquadtMD"));
-    TS_ASSERT_THROWS_NOTHING( finder.setPropertyValue("PeaksList","FoundedSinglePeakTable"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("InputWorkspace", wsname));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("WorkspaceIndex","0"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("Tolerance", 4));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("FWHM", 8));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("PeakPositions", "1.2356"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("FitWindows", "1.21, 1.50"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("PeakFunction", "Gaussian"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("BackgroundType", "Quadratic"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("HighBackground", true));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("MinGuessedPeakWidth", 2));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("MaxGuessedPeakWidth", 10));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("PeakPositionTolerance", 0.05));
+    TS_ASSERT_THROWS_NOTHING( finder1.setProperty("RawPeakParameters", true));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("CostFunction", "Chi-Square"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("Minimizer", "Levenberg-MarquadtMD"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("PeaksList","FoundedSinglePeakTable"));
 
-    TS_ASSERT_THROWS_NOTHING( finder.execute() );
-    TS_ASSERT( finder.isExecuted() );
+    TS_ASSERT_THROWS_NOTHING( finder1.execute() );
+    TS_ASSERT( finder1.isExecuted() );
 
+    // Get output workspace
+    TableWorkspace_sptr outtablews = boost::dynamic_pointer_cast<TableWorkspace>(
+          AnalysisDataService::Instance().retrieve("FoundedSinglePeakTable"));
+    TS_ASSERT(outtablews);
+
+    // Size of the output workspace
+    TS_ASSERT_EQUALS(outtablews->rowCount(), 1);
+    if (outtablews->rowCount() == 0)
+      return;
+
+    map<string, double> parammap;
+    getParameterMap(outtablews, 0, parammap);
+    TS_ASSERT_DELTA(parammap["X0"], 1.2356, 0.03);
+    TS_ASSERT_DELTA(parammap["Height"], 100., 3.00);
+
+    // Clean
+    AnalysisDataService::Instance().remove(wsname);
+    AnalysisDataService::Instance().remove("FoundedSinglePeakTable");
   }
 
-  void testFindMultiPeaksAuto()
+  void NtestFindMultiPeaksAuto()
   {
     // Load data file
     Mantid::DataHandling::LoadNexusProcessed loader;
@@ -110,15 +139,6 @@ public:
 
   }
 
-  void LoadPG3_733()
-  {
-    Mantid::DataHandling::LoadNexusProcessed loader;
-    loader.initialize();
-    loader.setProperty("Filename","PG3_733_focussed.nxs");
-    loader.setProperty("OutputWorkspace", "FindPeaksTest_vanadium");
-    loader.execute();
-  }
-
   void NtestFindMultiPeaksGivenPeaksList()
   {
     this->LoadPG3_733();
@@ -134,6 +154,33 @@ public:
     TS_ASSERT_THROWS_NOTHING( finder.execute() );
     TS_ASSERT( finder.isExecuted() );
 
+  }
+
+  /// Parse a row in output parameter tableworkspace to a string/double parameter name/value map
+  void getParameterMap(TableWorkspace_sptr tablews, size_t rowindex, map<string, double>& parammap)
+  {
+    parammap.clear();
+
+    vector<string> vecnames = tablews->getColumnNames();
+    TableRow row = tablews->getRow(rowindex);
+    for (size_t i = 0; i < vecnames.size(); ++i)
+    {
+      string parname = vecnames[i];
+      double parvalue = tablews->cell<double>(rowindex, i);
+      parammap.insert(make_pair(parname, parvalue));
+    }
+
+    return;
+  }
+
+  /// Load PG3_733 focussed data from AutoTest
+  void LoadPG3_733()
+  {
+    Mantid::DataHandling::LoadNexusProcessed loader;
+    loader.initialize();
+    loader.setProperty("Filename","PG3_733_focussed.nxs");
+    loader.setProperty("OutputWorkspace", "FindPeaksTest_vanadium");
+    loader.execute();
   }
 
   /// Create a workspace as a partial data from PG3_4866 around Vanadium peak at

@@ -4,9 +4,11 @@
 //----------------------------------------------------------------------
 // Includes
 //----------------------------------------------------------------------
+#include "MantidKernel/System.h"
 #include "MantidAPI/Algorithm.h"
-#include "MantidAPI/IFunction.h"
+// #include "MantidAPI/IFunction.h"
 #include "MantidAPI/IPeakFunction.h"
+#include "MantidAPI/IBackgroundFunction.h"
 #include "MantidDataObjects/TableWorkspace.h"
 
 namespace Mantid

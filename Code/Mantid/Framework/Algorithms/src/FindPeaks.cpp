@@ -27,17 +27,20 @@
 // Includes
 //----------------------------------------------------------------------
 #include "MantidAlgorithms/FindPeaks.h"
+
+#include "MantidAPI/CostFunctionFactory.h"
+#include "MantidAPI/FunctionFactory.h"
+#include "MantidAPI/FuncMinimizerFactory.h"
 #include "MantidAPI/TableRow.h"
+#include "MantidAPI/WorkspaceValidators.h"
+#include "MantidDataObjects/Workspace2D.h"
 #include "MantidKernel/ArrayProperty.h"
 #include "MantidKernel/StartsWithValidator.h"
 #include "MantidKernel/VectorHelper.h"
-#include "MantidAPI/CompositeFunction.h"
-#include "MantidAPI/WorkspaceValidators.h"
-#include "MantidAPI/FunctionFactory.h"
-#include "MantidAPI/FuncMinimizerFactory.h"
-#include "MantidAPI/IPeakFunction.h"
-#include "MantidDataObjects/Workspace2D.h"
-#include "MantidAPI/ConstraintFactory.h"
+
+// #include "MantidAPI/CompositeFunction.h"
+// #include "MantidAPI/ConstraintFactory.h"
+
 #include <boost/algorithm/string.hpp>
 #include <iostream>
 #include <numeric>
@@ -47,8 +50,7 @@
 
 #include <fstream>
 
-#define TEST 1
-
+using namespace Mantid;
 using namespace Mantid::Kernel;
 using namespace Mantid::API;
 using namespace Mantid::DataObjects;
@@ -110,7 +112,15 @@ namespace Algorithms
     declareProperty(new ArrayProperty<double>("FitWindows"),
                     "Optional: enter a comma-separated list of the expected X-position of windows to fit. The number of values must be exactly double the number of specified peaks.");
 
-    std::vector<std::string> peakNames = FunctionFactory::Instance().getFunctionNames<IPeakFunction>();
+    std::vector<std::string> peakNames = FunctionFactory::Instance().getFunctionNames<API::IPeakFunction>();
+
+    g_log.notice() << "Total " << peakNames.size() << " peak types" << "\n";
+    for (size_t i = 0; i < peakNames.size(); ++i)
+      g_log.notice() << "Peak type : " << peakNames[i] << "\n";
+
+    // peakNames.push_back("Gaussian");
+    // FIXME - getFuntionNames() has some serious problem!
+
     declareProperty("PeakFunction", "Gaussian", boost::make_shared<StringListValidator>(peakNames));
 
     std::vector<std::string> bkgdtypes;
@@ -119,6 +129,7 @@ namespace Algorithms
     bkgdtypes.push_back("Quadratic");
     declareProperty("BackgroundType", "Linear", boost::make_shared<StringListValidator>(bkgdtypes),
                     "Type of Background.");
+
 
     declareProperty("HighBackground", true, "Relatively weak peak in high background");
 
@@ -157,6 +168,8 @@ namespace Algorithms
                     "Cost functions");
 
     std::vector<std::string> minimizerOptions = API::FuncMinimizerFactory::Instance().getKeys();
+    // FIXME - FuncMinimzerFactory does not work here!
+    // minimizerOptions.push_back("Levenberg-MarquardtMD");
 
     declareProperty("Minimizer", "Levenberg-MarquardtMD",
       Kernel::IValidator_sptr(new Kernel::StartsWithValidator(minimizerOptions)),
@@ -1316,7 +1329,6 @@ namespace Algorithms
     * @param effParams This will always be centre, width, height, backA0, backA1, backA2 reguarless of how many
     * parameters the function actually has.
     * @param rawParams The actual parameters of the fit function.
-    */
   void getComponentFunctions(IFunction_sptr compositeFunc, std::vector<double> &effParams,
                              std::vector<double> &rawParams)
   {
@@ -1369,6 +1381,7 @@ namespace Algorithms
 
     return;
   }
+  */
 
   //----------------------------------------------------------------------------------------------
   /** Create functions and related variables
@@ -1389,15 +1402,17 @@ namespace Algorithms
       // FlatBackground, LinearBackground, Quadratic
       backgroundposix = "Background";
     }
-    auto background = API::FunctionFactory::Instance().createFunction(
-          m_backgroundType + backgroundposix);
+    g_log.information() << "About to create background function. " << "\n";
+    m_backgroundFunction = boost::dynamic_pointer_cast<IBackgroundFunction>(API::FunctionFactory::Instance().createFunction(
+          m_backgroundType + backgroundposix));
+    g_log.information() << "Background function (" << m_backgroundFunction->name() << ") has been created. " << "\n";
 
-    m_bkgdParameterNames = background->getParameterNames();
+    m_bkgdParameterNames = m_backgroundFunction->getParameterNames();
 
     // Set up peak function
-    auto tempPeakFunc = API::FunctionFactory::Instance().createFunction(m_peakFuncType);
-    auto peakFunc = boost::dynamic_pointer_cast<IPeakFunction>(tempPeakFunc);
-    m_peakParameterNames = peakFunc->getParameterNames();
+    m_peakFunction = boost::dynamic_pointer_cast<IPeakFunction>(
+          API::FunctionFactory::Instance().createFunction(m_peakFuncType));
+    m_peakParameterNames = m_peakFunction->getParameterNames();
 
     return;
   }
