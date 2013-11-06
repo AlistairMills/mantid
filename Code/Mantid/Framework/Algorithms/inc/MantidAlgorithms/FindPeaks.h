@@ -179,10 +179,7 @@ private:
 
   std::vector<std::string> m_peakParameterNames;
   std::vector<std::string> m_bkgdParameterNames;
-  int m_bkgdOrder;
-  std::string m_costFunction;
-
-
+  size_t m_bkgdOrder;
 
   /// The number of smoothing iterations. Set to 5, the optimum value according to Mariscotti.
   static const int g_z = 5;
@@ -227,6 +224,7 @@ private:
   std::vector<size_t> m_peakRightIndexes;
 
   std::string m_minimizer;
+  std::string m_costFunction;
 
   /// Minimum peak height
   double m_minHeight;

@@ -33,7 +33,7 @@ class FindPeaksTest : public CxxTest::TestSuite
 public:
 
   /// Test basic functions
-  void testTheBasics()
+  void PtestTheBasics()
   {
     FindPeaks finder;
     TS_ASSERT_EQUALS( finder.name(), "FindPeaks" );
@@ -41,7 +41,7 @@ public:
   }
 
   /// Test initialization
-  void testInit()
+  void PtestInit()
   {
     FindPeaks finder;
     TS_ASSERT_THROWS_NOTHING( finder.initialize() );
@@ -75,10 +75,11 @@ public:
     TS_ASSERT_THROWS_NOTHING( finder1.setProperty("PeakPositionTolerance", 0.05));
     TS_ASSERT_THROWS_NOTHING( finder1.setProperty("RawPeakParameters", true));
     TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("CostFunction", "Chi-Square"));
-    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("Minimizer", "Levenberg-MarquadtMD"));
+    TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("Minimizer", "Levenberg-MarquardtMD"));
     TS_ASSERT_THROWS_NOTHING( finder1.setPropertyValue("PeaksList","FoundedSinglePeakTable"));
 
     TS_ASSERT_THROWS_NOTHING( finder1.execute() );
+
     TS_ASSERT( finder1.isExecuted() );
 
     // Get output workspace
@@ -162,7 +163,20 @@ public:
     parammap.clear();
 
     vector<string> vecnames = tablews->getColumnNames();
-    TableRow row = tablews->getRow(rowindex);
+    for (size_t i = 0; i < vecnames.size(); ++i)
+      cout << "column " << i << " : " << vecnames[i] << "\n";
+
+    /* Column Names:
+column 0 : spectrum
+column 1 : Height
+column 2 : PeakCentre
+column 3 : Sigma
+column 4 : A0
+column 5 : A1
+column 6 : A2
+column 7 : chi2
+      */
+
     for (size_t i = 0; i < vecnames.size(); ++i)
     {
       string parname = vecnames[i];
@@ -276,6 +290,15 @@ public:
 
     MatrixWorkspace_sptr dataws = boost::dynamic_pointer_cast<MatrixWorkspace>(
           WorkspaceFactory::Instance().create("Workspace2D", 1, sizex, sizey));
+
+    for (size_t i = 0; i < sizex; ++i)
+        dataws->dataX(0)[i] = vecX[i];
+
+    for (size_t i = 0; i < sizex; ++i)
+    {
+        dataws->dataY(0)[i] = vecY[i];
+        dataws->dataE(0)[i] = vecE[i];
+    }
 
     return dataws;
   }

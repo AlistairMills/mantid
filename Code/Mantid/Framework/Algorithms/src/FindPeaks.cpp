@@ -113,14 +113,6 @@ namespace Algorithms
                     "Optional: enter a comma-separated list of the expected X-position of windows to fit. The number of values must be exactly double the number of specified peaks.");
 
     std::vector<std::string> peakNames = FunctionFactory::Instance().getFunctionNames<API::IPeakFunction>();
-
-    g_log.notice() << "Total " << peakNames.size() << " peak types" << "\n";
-    for (size_t i = 0; i < peakNames.size(); ++i)
-      g_log.notice() << "Peak type : " << peakNames[i] << "\n";
-
-    // peakNames.push_back("Gaussian");
-    // FIXME - getFuntionNames() has some serious problem!
-
     declareProperty("PeakFunction", "Gaussian", boost::make_shared<StringListValidator>(peakNames));
 
     std::vector<std::string> bkgdtypes;
@@ -171,6 +163,14 @@ namespace Algorithms
     // FIXME - FuncMinimzerFactory does not work here!
     // minimizerOptions.push_back("Levenberg-MarquardtMD");
 
+
+    g_log.notice() << "Total " << minimizerOptions.size() << " minimzer types" << "\n";
+    for (size_t i = 0; i < minimizerOptions.size(); ++i)
+      g_log.notice() << "minimzer : " << minimizerOptions[i] << "\n";
+
+    // peakNames.push_back("Gaussian");
+    // FIXME - getFuntionNames() has some serious problem!
+
     declareProperty("Minimizer", "Levenberg-MarquardtMD",
       Kernel::IValidator_sptr(new Kernel::StartsWithValidator(minimizerOptions)),
       "Minimizer to use for fitting. Minimizers available are \"Levenberg-Marquardt\", \"Simplex\","
@@ -220,7 +220,7 @@ namespace Algorithms
     }
 
     // Set output properties
-    g_log.information() << "Total of " << m_outPeakTableWS->rowCount()
+    g_log.information() << "Total " << m_outPeakTableWS->rowCount()
                         << " peaks found and successfully fitted." << std::endl;
     setProperty("PeaksList", m_outPeakTableWS);
 
@@ -294,16 +294,7 @@ namespace Algorithms
 
     // About Fit
     m_minimizer = getPropertyValue("Minimizer");
-    std::string costfunname = getProperty("CostFunction");
-    if (costfunname == "Chi-Square")
-      m_costFunction = "Least squares";
-    else if (costfunname == "Rwp")
-      m_costFunction = "Rwp";
-    else
-    {
-      g_log.error() << "Cost function " << costfunname << " is not supported. " << "\n";
-      throw std::runtime_error("Cost function is not supported. ");
-    }
+    m_costFunction = getPropertyValue("CostFunction");
 
     return;
   }
@@ -366,10 +357,10 @@ namespace Algorithms
         double x_center = peakcentres[i];
 
         std::stringstream infoss;
-        infoss <<  " @ d = " << x_center;
+        infoss <<  "Peak @ d = " << x_center;
         if (useWindows)
         {
-          infoss << " [" << fitwindows[2 * i] << "<" << fitwindows[2 * i + 1] << "]";
+          infoss << " inside fit window [" << fitwindows[2 * i] << ", " << fitwindows[2 * i + 1] << "]";
         }
         g_log.information(infoss.str());
 
@@ -380,6 +371,11 @@ namespace Algorithms
             fitPeakInWindow(m_dataWS, spec, x_center, fitwindows[2 * i], fitwindows[2 * i + 1]);
           else
             fitPeakGivenFWHM(m_dataWS, spec, x_center, m_inputPeakFWHM);
+        }
+        else
+        {
+            g_log.warning() << "Given peak centre " << x_center << " is out side of given data's range ("
+                << datax.front() << ", " << datax.back() << ").\n";
         }
 
       } // loop through the peaks specified
@@ -917,7 +913,8 @@ namespace Algorithms
     }
 
     // finally do the actual fit
-    throw std::runtime_error("Debug Stop:  Need to check whether the parameters given are correct. ");
+    // throw std::runtime_error("Debug Stop:  Need to check whether the parameters given are correct. ");
+    g_log.warning("XXX Need to find out whether the input, such as i_min, i_max and i_centre are correct.");
     fitSinglePeak(input, spectrum, i_min, i_max, i_centre);
 
     return;
@@ -968,8 +965,8 @@ namespace Algorithms
     fitwindow[1] = vecX[i_max];
     std::vector<double> vec_fittedpeakparvalues, vec_fittedbkgdparvalues;
     double costfuncvalue = callFitPeak(input, spectrum, vec_peakparvalues0, vec_bkgdparvalues0, fitwindow, vecpeakrange,
-                                  m_minGuessedPeakWidth, m_maxGuessedPeakWidth, m_stepGuessedPeakWidth,
-                                  vec_fittedpeakparvalues, vec_fittedbkgdparvalues);
+                                       m_minGuessedPeakWidth, m_maxGuessedPeakWidth, m_stepGuessedPeakWidth,
+                                       vec_fittedpeakparvalues, vec_fittedbkgdparvalues);
     bool fitsuccess = false;
     if (costfuncvalue < DBL_MAX && costfuncvalue >= DBL_MIN)
       fitsuccess = true;
@@ -1408,6 +1405,7 @@ namespace Algorithms
     g_log.information() << "Background function (" << m_backgroundFunction->name() << ") has been created. " << "\n";
 
     m_bkgdParameterNames = m_backgroundFunction->getParameterNames();
+    m_bkgdOrder = m_backgroundFunction->nParams()-1;
 
     // Set up peak function
     m_peakFunction = boost::dynamic_pointer_cast<IPeakFunction>(
@@ -1496,16 +1494,18 @@ namespace Algorithms
         vecBkgdParamValues[2] = bg2;
     }
 
-    throw std::runtime_error("Debug Stop. ");
+    g_log.information() << "Number of background parameter values = " << vecBkgdParamValues.size()
+                        << ", background order = " << m_bkgdOrder << "\n";
+    g_log.warning("Need to find out how the background esitmated.");
 
     return;
   }
 
   double FindPeaks::callFitPeak(const MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvalues0,
-                              const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
-                              const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
-                              int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
-                              std::vector<double>& vec_fittedbkgdparvalues)
+                                const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
+                                const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
+                                int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
+                                std::vector<double>& vec_fittedbkgdparvalues)
   {
     IAlgorithm_sptr fitpeak = createChildAlgorithm("FitPeak");
     fitpeak->initialize();
