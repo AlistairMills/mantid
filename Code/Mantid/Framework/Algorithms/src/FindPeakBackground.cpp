@@ -152,6 +152,7 @@ namespace Algorithms
     m_outPeakTableWS->addColumn("double", "bkg0");
     m_outPeakTableWS->addColumn("double", "bkg1");
     m_outPeakTableWS->addColumn("double", "bkg2");
+    m_outPeakTableWS->addColumn("int", "GoodFit");
     for( size_t i = 0; i < numspec; ++i )
       m_outPeakTableWS->appendRow();
 
@@ -253,6 +254,7 @@ namespace Algorithms
 		  }
 		  size_t min_peak, max_peak;
 		  double a0,a1,a2;
+		  int goodfit;
 		  if(peaks.size()> 0)
 		  {
 			  if(peaks[peaks.size()-1].stop == 0) peaks[peaks.size()-1].stop = n-1;
@@ -264,6 +266,7 @@ namespace Algorithms
 			  max_peak = peaks[0].stop + sizex - sizey;
 			  estimateBackground(inpX, inpY, l0, n,
 			      peaks[0].start, peaks[0].stop, a0, a1, a2);
+			  goodfit = 1;
 		  }
 		  else
 		  {
@@ -274,11 +277,14 @@ namespace Algorithms
 			  a0 = 0.0;
 			  a1 = 0.0;
 			  a2 = 0.0;
+
+			  goodfit = -1;
+
 		  }
 
 		  // Add a new row
 		  API::TableRow t = m_outPeakTableWS->getRow(i);
-		  t << static_cast<int>(wsindex) << static_cast<int>(min_peak) << static_cast<int>(max_peak) << a0 << a1 <<a2;
+		  t << static_cast<int>(wsindex) << static_cast<int>(min_peak) << static_cast<int>(max_peak) << a0 << a1 <<a2 << goodfit;
       }
 
 	  prog.report();
