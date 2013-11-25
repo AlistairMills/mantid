@@ -167,14 +167,6 @@ namespace Algorithms
       g_log.notice() << "minimzer : " << minimizerOptions[i] << "\n";
 #endif
 
-
-    g_log.notice() << "Total " << minimizerOptions.size() << " minimzer types" << "\n";
-    for (size_t i = 0; i < minimizerOptions.size(); ++i)
-      g_log.notice() << "minimzer : " << minimizerOptions[i] << "\n";
-
-    // peakNames.push_back("Gaussian");
-    // FIXME - getFuntionNames() has some serious problem!
-
     declareProperty("Minimizer", "Levenberg-MarquardtMD",
                     Kernel::IValidator_sptr(new Kernel::StartsWithValidator(minimizerOptions)),
                     "Minimizer to use for fitting. Minimizers available are \"Levenberg-Marquardt\", \"Simplex\","
