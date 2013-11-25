@@ -160,20 +160,16 @@ namespace Algorithms
                     "Cost functions");
 
     std::vector<std::string> minimizerOptions = API::FuncMinimizerFactory::Instance().getKeys();
-    // FIXME - FuncMinimzerFactory does not work here!
-    // minimizerOptions.push_back("Levenberg-MarquardtMD");
 
-
+#if 0
     g_log.notice() << "Total " << minimizerOptions.size() << " minimzer types" << "\n";
     for (size_t i = 0; i < minimizerOptions.size(); ++i)
       g_log.notice() << "minimzer : " << minimizerOptions[i] << "\n";
-
-    // peakNames.push_back("Gaussian");
-    // FIXME - getFuntionNames() has some serious problem!
+#endif
 
     declareProperty("Minimizer", "Levenberg-MarquardtMD",
-      Kernel::IValidator_sptr(new Kernel::StartsWithValidator(minimizerOptions)),
-      "Minimizer to use for fitting. Minimizers available are \"Levenberg-Marquardt\", \"Simplex\","
+                    Kernel::IValidator_sptr(new Kernel::StartsWithValidator(minimizerOptions)),
+                    "Minimizer to use for fitting. Minimizers available are \"Levenberg-Marquardt\", \"Simplex\","
                     "\"Conjugate gradient (Fletcher-Reeves imp.)\", \"Conjugate gradient (Polak-Ribiere imp.)\", \"BFGS\", and \"Levenberg-MarquardtMD\"");
 
 
@@ -925,8 +921,8 @@ namespace Algorithms
   /** Fit a single peak
     * This is the fundametary peak fit function used by all kinds of input
     */
-  void FindPeaks::fitSinglePeak(const API::MatrixWorkspace_sptr &input, const int spectrum, const int i_min,
-                                const int i_max, const int i_centre)
+  void FindPeaks::fitSinglePeak(const API::MatrixWorkspace_sptr &input, const int spectrum,
+                                const int i_min, const int i_max, const int i_centre)
   {
     //-------------------------------------------------------------------------
     // Estimate peak and background parameters for better fitting
@@ -982,11 +978,6 @@ namespace Algorithms
 
     return;
   }
-
-  //----------------------------------------------------------------------------------------------
-  //----------------------------------------------------------------------------------------------
-  //----------------------------------------------------------------------------------------------
-  //----------------------------------------------------------------------------------------------
 
   //----------------------------------------------------------------------------------------------
   /** make boundary/contraint string on peak's centre
@@ -1270,7 +1261,7 @@ namespace Algorithms
       for (std::vector<double>::const_iterator it = peakparams.begin(); it != peakparams.end(); ++it)
       {
         t << (*it);
-        g_log.information() << (*it) << " ";
+        g_log.information()<< "Add peak parameter: " << (*it) << "\n";
       }
       for (std::vector<double>::const_iterator it = bkgdparams.begin(); it != bkgdparams.end(); ++it)
       {
@@ -1280,8 +1271,18 @@ namespace Algorithms
     }
     else
     {
-      // TODO - Implement ASAP
+      // TODO - Implement ASAP [NOW!]
       throw std::runtime_error("Need to make the effective parameter values/names unified between FitPeak and FindPeaks");
+      /*
+      m_numTableParams = 6;
+      m_outPeakTableWS->addColumn("double", "centre");
+      m_outPeakTableWS->addColumn("double", "width");
+      m_outPeakTableWS->addColumn("double", "height");
+      m_outPeakTableWS->addColumn("double", "backgroundintercept");
+      m_outPeakTableWS->addColumn("double", "backgroundslope");
+      m_outPeakTableWS->addColumn("double", "A2");
+
+        */
 #if 0
       for (std::vector<double>::const_iterator it = params.begin(); it != params.end(); ++it)
       {
@@ -1435,7 +1436,6 @@ namespace Algorithms
   void FindPeaks::findPeakBackground(const MatrixWorkspace_sptr& input, int spectrum, size_t i_min, size_t i_max,
                                      std::vector<double>& vecBkgdParamValues, std::vector<double>& vecpeakrange)
   {
-    // TODO - Need to do a debug test on this function.
     double bg0, bg1, bg2;
 
     const MantidVec& vecX = input->readX(spectrum);
@@ -1443,6 +1443,8 @@ namespace Algorithms
 
     // Estimate background roughly for a failed case
     estimateBackground(vecX, vecY, i_min, i_max, bg0, bg1, bg2);
+    g_log.notice() << "[DBXXW] type = " << m_backgroundType << ", spectrum " << spectrum << ", i_min = " << i_min
+                   << ", Range is " << vecX[i_min] << ", " << vecX[i_max] << "\n";
 
     // Call FindPeakBackground
     IAlgorithm_sptr estimate = createChildAlgorithm("FindPeakBackground");
@@ -1462,28 +1464,50 @@ namespace Algorithms
     // Get back the result
     Mantid::API::ITableWorkspace_sptr pealisttablews = estimate->getProperty("OutputWorkspace");
 
+    // FIXME/TODO : Document the way how to handle bad result.  Make this part cleaner
     size_t i_peakmin, i_peakmax;
     if (pealisttablews->rowCount() > 0)
     {
-        if(pealisttablews->Int(0,1) >= static_cast<int>(i_min))
-          i_peakmin = pealisttablews->Int(0,1) - i_min;
-        if(pealisttablews->Int(0,2) >= static_cast<int>(i_min))
-          i_peakmax = pealisttablews->Int(0,2) - i_min - 1;
-        bg0 = pealisttablews->Double(0,3);
-        bg1 = pealisttablews->Double(0,4);
-        bg2 = pealisttablews->Double(0,5);
+      g_log.information() << "Background fitting successful. " << " peak talbe i_x = " << pealisttablews->Int(0,1)
+                          << "\n";
+      if(pealisttablews->Int(0,1) >= static_cast<int>(i_min))
+      {
+        i_peakmin = pealisttablews->Int(0,1);
+        if (i_peakmin > i_max)
+          i_peakmin = i_min;
+      }
+      else
+        i_peakmin = i_min;
+
+      if(pealisttablews->Int(0,2) >= static_cast<int>(i_min))
+      {
+        i_peakmax = pealisttablews->Int(0,2);
+        if (i_peakmax > i_max)
+          i_peakmax = i_max;
+      }
+      else
+        i_peakmax = i_max;
+      bg0 = pealisttablews->Double(0,3);
+      bg1 = pealisttablews->Double(0,4);
+      bg2 = pealisttablews->Double(0,5);
+      // TODO - Get one more output (0, 6) to determine whether use FindPeakBackground or estimated value.
+      throw std::runtime_error("TODO Now");
     }
     else
     {
+      g_log.information() << "Background fitting failed. " << "\n";
       // If FindPeakBackground failed!
       i_peakmin = i_min;
       i_peakmax = i_max;
     }
 
+    g_log.notice() << "[DBXXX] imin = " << i_min << ", imax = " << i_max << ", vector X size = "
+                   << vecX.size() << ", i_peakmin = " << i_peakmin << ", ipeakmax = " << i_peakmax << "\n";
+
     // Set output
     vecpeakrange.resize(2);
     vecpeakrange[0] = vecX[i_peakmin];
-    vecpeakrange[1] = vecY[i_peakmax];
+    vecpeakrange[1] = vecX[i_peakmax];
 
     vecBkgdParamValues.resize(m_bkgdOrder+1);
     vecBkgdParamValues[0] = bg0;

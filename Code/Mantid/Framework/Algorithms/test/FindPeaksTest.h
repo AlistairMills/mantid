@@ -48,8 +48,10 @@ public:
     TS_ASSERT( finder.isInitialized() );
   }
 
-  /// Test find a single peak with given position
-  void testFindSinglePeakGivenPeaksList()
+  //----------------------------------------------------------------------------------------------
+  /** Test find a single peak with given position
+    */
+  void Ptest_findSinglePeakGivenPeakPosition()
   {
     FrameworkManager::Instance();
 
@@ -94,15 +96,19 @@ public:
 
     map<string, double> parammap;
     getParameterMap(outtablews, 0, parammap);
-    TS_ASSERT_DELTA(parammap["X0"], 1.2356, 0.03);
-    TS_ASSERT_DELTA(parammap["Height"], 100., 3.00);
+
+    TS_ASSERT_DELTA(parammap["PeakCentre"], 1.2356, 0.03);
+    TS_ASSERT_DELTA(parammap["Height"], 595., 3.00);
 
     // Clean
     AnalysisDataService::Instance().remove(wsname);
     AnalysisDataService::Instance().remove("FoundedSinglePeakTable");
   }
 
-  void NtestFindMultiPeaksAuto()
+  //----------------------------------------------------------------------------------------------
+  /** Test find peaks automatically
+    */
+  void test_findMultiPeaksAuto()
   {
     // Load data file
     Mantid::DataHandling::LoadNexusProcessed loader;
@@ -157,31 +163,31 @@ public:
 
   }
 
-  /// Parse a row in output parameter tableworkspace to a string/double parameter name/value map
+  //----------------------------------------------------------------------------------------------
+  /** Parse a row in output parameter tableworkspace to a string/double parameter name/value map
+    */
   void getParameterMap(TableWorkspace_sptr tablews, size_t rowindex, map<string, double>& parammap)
   {
     parammap.clear();
 
     vector<string> vecnames = tablews->getColumnNames();
+    /*
     for (size_t i = 0; i < vecnames.size(); ++i)
-      cout << "column " << i << " : " << vecnames[i] << "\n";
+      cout << "Column " << i << " : " << vecnames[i] << "\n";
 
-    /* Column Names:
-column 0 : spectrum
-column 1 : Height
-column 2 : PeakCentre
-column 3 : Sigma
-column 4 : A0
-column 5 : A1
-column 6 : A2
-column 7 : chi2
-      */
+    size_t numrows = tablews->rowCount();
+    cout << "Number of rows = " << numrows << "\n";
+    */
 
     for (size_t i = 0; i < vecnames.size(); ++i)
     {
       string parname = vecnames[i];
-      double parvalue = tablews->cell<double>(rowindex, i);
-      parammap.insert(make_pair(parname, parvalue));
+      if (parname != "spectrum")
+      {
+        double parvalue = tablews->cell<double>(rowindex, i);
+        parammap.insert(make_pair(parname, parvalue));
+        cout << "Add parameter " << parname << " = " << parvalue << "\n";
+      }
     }
 
     return;
@@ -197,7 +203,9 @@ column 7 : chi2
     loader.execute();
   }
 
-  /// Create a workspace as a partial data from PG3_4866 around Vanadium peak at
+  //----------------------------------------------------------------------------------------------
+  /** Create a workspace as a partial data from PG3_4866 around Vanadium peak at d = 1.235
+    */
   MatrixWorkspace_sptr getSinglePeakData()
   {
     std::vector<double> vecX, vecY, vecE;
