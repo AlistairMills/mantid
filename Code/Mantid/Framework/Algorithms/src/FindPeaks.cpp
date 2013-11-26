@@ -1258,6 +1258,7 @@ namespace Algorithms
 
     if (isoutputraw)
     {
+      // Output of raw peak parameters
       for (std::vector<double>::const_iterator it = peakparams.begin(); it != peakparams.end(); ++it)
       {
         t << (*it);
@@ -1271,8 +1272,34 @@ namespace Algorithms
     }
     else
     {
-      // TODO - Implement ASAP [NOW!]
-      throw std::runtime_error("Need to make the effective parameter values/names unified between FitPeak and FindPeaks");
+      // Output of effective peak parameters
+      // Set up parameters to peak function and get effective value
+      for (size_t i = 0; i < m_peakParameterNames.size(); ++i)
+        m_peakFunction->setParameter(m_peakParameterNames[i], peakparams[i]);
+
+      double peakcentre = m_peakFunction->centre();
+      double fwhm = m_peakFunction->fwhm();
+      double height = m_peakFunction->height();
+
+      t << peakcentre << fwhm << height;
+
+      // Set up parameters to background function
+      for (size_t i = 0; i < m_bkgdParameterNames.size(); ++i)
+        m_backgroundFunction->setParameter(m_bkgdParameterNames[i], bkgdparams[i]);
+
+      g_log.notice() << "[DBXXA] Background type = " << m_backgroundFunction->name() << "\n";
+
+      double a0 = m_backgroundFunction->getParameter("A0");
+      double a1 = m_backgroundFunction->getParameter("A1");
+      double a2;
+      // FIXME - Use Polynomial for all 3 background types. 
+      if (m_backgroundFunction->name() == "LinearBackground")
+          a2 = 0.0;
+      else 
+          a2 = m_backgroundFunction->getParameter("A2");
+
+      t << a0 << a1 << a2;
+
       /*
       m_numTableParams = 6;
       m_outPeakTableWS->addColumn("double", "centre");
@@ -1281,8 +1308,7 @@ namespace Algorithms
       m_outPeakTableWS->addColumn("double", "backgroundintercept");
       m_outPeakTableWS->addColumn("double", "backgroundslope");
       m_outPeakTableWS->addColumn("double", "A2");
-
-        */
+      */
 #if 0
       for (std::vector<double>::const_iterator it = params.begin(); it != params.end(); ++it)
       {
@@ -1441,11 +1467,6 @@ namespace Algorithms
     const MantidVec& vecX = input->readX(spectrum);
     const MantidVec& vecY = input->readY(spectrum);
 
-    // Estimate background roughly for a failed case
-    estimateBackground(vecX, vecY, i_min, i_max, bg0, bg1, bg2);
-    g_log.notice() << "[DBXXW] type = " << m_backgroundType << ", spectrum " << spectrum << ", i_min = " << i_min
-                   << ", Range is " << vecX[i_min] << ", " << vecX[i_max] << "\n";
-
     // Call FindPeakBackground
     IAlgorithm_sptr estimate = createChildAlgorithm("FindPeakBackground");
     estimate->setProperty("InputWorkspace", input);
@@ -1464,12 +1485,23 @@ namespace Algorithms
     // Get back the result
     Mantid::API::ITableWorkspace_sptr pealisttablews = estimate->getProperty("OutputWorkspace");
 
-    // FIXME/TODO : Document the way how to handle bad result.  Make this part cleaner
+    // Determine whether to use FindPeakBackground's result.
     size_t i_peakmin, i_peakmax;
+    bool usefitresult = false;
     if (pealisttablews->rowCount() > 0)
     {
+      int useit = pealisttablews->Int(0, 6);
+      if (useit > 0)
+        usefitresult = true;
+    }
+
+    if (usefitresult)
+    {
+      // Use FitPeakBackgroud's reuslt
       g_log.information() << "Background fitting successful. " << " peak talbe i_x = " << pealisttablews->Int(0,1)
                           << "\n";
+
+      // i_peakmin: must be in range. or use default
       if(pealisttablews->Int(0,1) >= static_cast<int>(i_min))
       {
         i_peakmin = pealisttablews->Int(0,1);
@@ -1479,6 +1511,7 @@ namespace Algorithms
       else
         i_peakmin = i_min;
 
+      // i_peakmax
       if(pealisttablews->Int(0,2) >= static_cast<int>(i_min))
       {
         i_peakmax = pealisttablews->Int(0,2);
@@ -1487,11 +1520,11 @@ namespace Algorithms
       }
       else
         i_peakmax = i_max;
+
+      // background parameters
       bg0 = pealisttablews->Double(0,3);
       bg1 = pealisttablews->Double(0,4);
       bg2 = pealisttablews->Double(0,5);
-      // TODO - Get one more output (0, 6) to determine whether use FindPeakBackground or estimated value.
-      throw std::runtime_error("TODO Now");
     }
     else
     {
@@ -1499,6 +1532,10 @@ namespace Algorithms
       // If FindPeakBackground failed!
       i_peakmin = i_min;
       i_peakmax = i_max;
+      // Estimate background roughly for a failed case
+      estimateBackground(vecX, vecY, i_min, i_max, bg0, bg1, bg2);
+      g_log.notice() << "[DBXXW] type = " << m_backgroundType << ", spectrum " << spectrum << ", i_min = " << i_min
+                     << ", Range is " << vecX[i_min] << ", " << vecX[i_max] << "\n";
     }
 
     g_log.notice() << "[DBXXX] imin = " << i_min << ", imax = " << i_max << ", vector X size = "
