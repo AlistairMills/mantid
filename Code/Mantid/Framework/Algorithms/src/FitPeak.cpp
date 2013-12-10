@@ -1444,7 +1444,7 @@ namespace Algorithms
       else
       {
         throw runtime_error("Peak parameter names' input is not in default mode. "
-                            "It cannot be left empty. ");
+                            "This property cannot be left empty. ");
       }
     }
 
