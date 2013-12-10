@@ -1042,8 +1042,14 @@ namespace Algorithms
 
     // Do calculation for starting chi^2/Rwp
     bool modecal = true;
+
+#if 0
+    // FIXME - Comment out to lower warning output
     double goodness_init = fitFunctionSD(compfunc, dataws, wsindex, startx, endx, modecal);
     g_log.debug() << "Peak+Backgruond: Pre-fit Goodness = " << goodness_init << "\n";
+#else
+    double goodness_init = 1.0E5;
+#endif
 
     map<string, double> bkuppeakmap, bkupbkgdmap, bkuppeakerrormap, bkupbkgderrormap;
     push(peakfunc, bkuppeakmap, bkuppeakerrormap);

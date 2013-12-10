@@ -1289,14 +1289,14 @@ namespace Algorithms
 
       g_log.notice() << "[DBXXA] Background type = " << m_backgroundFunction->name() << "\n";
 
+      // FIXME - Use Polynomial for all 3 background types.
       double a0 = m_backgroundFunction->getParameter("A0");
-      double a1 = m_backgroundFunction->getParameter("A1");
-      double a2;
-      // FIXME - Use Polynomial for all 3 background types. 
-      if (m_backgroundFunction->name() == "LinearBackground")
-          a2 = 0.0;
-      else 
-          a2 = m_backgroundFunction->getParameter("A2");
+      double a1 = 0.;
+      if (m_backgroundFunction->name() != "FlatBackground")
+        a1 = m_backgroundFunction->getParameter("A1");
+      double a2 = 0;
+      if (m_backgroundFunction->name() != "LinearBackground" && m_backgroundFunction->name() != "FlatBackground")
+        a2 = m_backgroundFunction->getParameter("A2");
 
       t << a0 << a1 << a2;
 
