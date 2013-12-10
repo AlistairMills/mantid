@@ -139,6 +139,13 @@ void ParamFunction::setParameterDescription(const std::string& name, const std::
   {
     std::ostringstream msg;
     msg << "ParamFunction parameter ("<<ucName<<") does not exist.";
+    msg << "Available parameters are ";
+    for (size_t i = 0; i < m_parameterNames.size(); ++i)
+    {
+      msg << m_parameterNames[i];
+      if (i < m_parameterNames.size() -1)
+        msg << ", ";
+    }
     throw std::invalid_argument(msg.str());
   }
   setParameterDescription(static_cast<int>(it - m_parameterNames.begin()),description);
@@ -159,7 +166,14 @@ double ParamFunction::getParameter(const std::string& name)const
   if (it == m_parameterNames.end())
   {
     std::ostringstream msg;
-    msg << "ParamFunction parameter ("<<ucName<<") does not exist.";
+    msg << "ParamFunction (get) parameter ("<<ucName<<") does not exist in function "
+        << this->name() << ". Available parameters are ";
+    for (size_t i = 0; i < m_parameterNames.size(); ++i)
+    {
+      msg << m_parameterNames[i];
+      if (i < m_parameterNames.size() -1)
+        msg << ", ";
+    }
     throw std::invalid_argument(msg.str());
   }
 
