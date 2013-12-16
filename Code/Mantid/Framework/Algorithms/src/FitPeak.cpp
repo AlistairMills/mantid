@@ -259,6 +259,9 @@ namespace Algorithms
       m_vecFWHM.push_back(in_fwhm);
     }
 
+    declareProperty("OutputFitFunctionOnly", false, "If chosen, output workspace and output data parameter workspace will be empty."
+                    "This should be used by CAUTION!");
+
     return;
   }
 
@@ -1086,6 +1089,7 @@ namespace Algorithms
     mustBeNonNegative->setLower(0);
     declareProperty("WorkspaceIndex", 0, mustBeNonNegative, "Workspace index ");
 
+<<<<<<< HEAD
     std::vector<std::string> peakNames = FunctionFactory::Instance().getFunctionNames<IPeakFunction>();
     vector<string> peakFullNames = addFunctionParameterNames(peakNames);
     declareProperty("PeakFunctionType", "", boost::make_shared<StringListValidator>(peakFullNames),
@@ -1099,6 +1103,68 @@ namespace Algorithms
 
     declareProperty(new ArrayProperty<double>("FittedPeakParameterValues", Direction::Output),
                     "Fitted peak parameter values. ");
+=======
+  //----------------------------------------------------------------------------------------------
+  /** Set up the output workspaces
+    * including (1) data workspace (2) function parameter workspace
+    */
+  void FitPeak::setupOutput()
+  {
+    //-----------------------------------------------------
+    // Fitted value (output data workspace)
+    //-----------------------------------------------------
+    MatrixWorkspace_sptr outws;
+
+    if (m_lightWeightOutput)
+    {
+      // Create an almost-empty data workspace
+      size_t nspec = 1;
+      size_t sizex = 1;
+      size_t sizey = 1;
+      outws = boost::dynamic_pointer_cast<MatrixWorkspace>(
+            WorkspaceFactory::Instance().create("Workspace2D", nspec, sizex, sizey));
+    }
+    else
+    {
+      // Full size serious output
+      size_t nspec = 3;
+      // Get a vector for fit window
+      const MantidVec& vecX = m_dataWS->readX(m_wsIndex);
+      size_t vecsize = i_maxFitX - i_minFitX + 1;
+      vector<double> vecoutx(vecsize);
+      for (size_t i = i_minFitX; i <= i_maxFitX; ++i)
+        vecoutx[i-i_minFitX] = vecX[i];
+
+      // Create workspace
+      size_t sizex = vecoutx.size();
+      size_t sizey = vecoutx.size();
+      outws = boost::dynamic_pointer_cast<MatrixWorkspace>(
+            WorkspaceFactory::Instance().create("Workspace2D", nspec, sizex, sizey));
+
+      // Calculate again
+      FunctionDomain1DVector domain(vecoutx);
+      FunctionValues values(domain);
+
+      CompositeFunction_sptr compfunc = boost::make_shared<CompositeFunction>();
+      compfunc->addFunction(m_peakFunc);
+      compfunc->addFunction(m_bkgdFunc);
+      compfunc->function(domain, values);
+      for (size_t i = 0; i < sizex; ++i)
+      {
+        for (size_t j = 0; j < 3; ++j)
+        {
+          outws->dataX(j)[i] = domain[i];
+        }
+      }
+      const MantidVec& vecY = m_dataWS->readY(m_wsIndex);
+      for (size_t i = 0; i < sizey; ++i)
+      {
+        outws->dataY(0)[i] = vecY[i+i_minFitX];
+        outws->dataY(1)[i] = values[i];
+        outws->dataY(2)[i] = outws->dataY(0)[i]  - outws->dataY(1)[i];
+      }
+    }
+>>>>>>> Enabled FitPeak to have a light-weight output. Refs #7789.
 
     vector<string> bkgdtypes;
     bkgdtypes.push_back("Flat");
@@ -1139,8 +1205,29 @@ namespace Algorithms
     declareProperty("MinGuessedPeakWidth", 2, mustBePositive,
                     "Minimum guessed peak width for fit. It is in unit of number of pixels.");
 
+<<<<<<< HEAD
     declareProperty("MaxGuessedPeakWidth", 10, mustBePositive,
                     "Maximum guessed peak width for fit. It is in unit of number of pixels.");
+=======
+    //-----------------------------------------------------
+    // Fitted function value (output table workspace)
+    //-----------------------------------------------------
+    TableWorkspace_sptr peaktablews;
+    if (m_lightWeightOutput)
+    {
+      // An almost-empty table workspace
+      peaktablews = boost::make_shared<TableWorkspace>();
+      peaktablews->addColumn("str", "Dummy");
+    }
+    else
+    {
+      // Function parameter table workspaces
+      peaktablews = genOutputTableWS(m_peakFunc, m_fitErrorPeakFunc, m_bkgdFunc,
+                                     m_fitErrorBkgdFunc);
+    }
+    // Set up property
+    setProperty("ParameterTableWorkspace", peaktablews);
+>>>>>>> Enabled FitPeak to have a light-weight output. Refs #7789.
 
     declareProperty("GuessedPeakWidthStep", EMPTY_INT(), mustBePositive,
                     "Step of guessed peak width. It is in unit of number of pixels.");
@@ -1421,6 +1508,7 @@ namespace Algorithms
     {
       m_bkgdFunc->setParameter(m_bkgdParameterNames[i], vec_bkgdparvalues[i]);
     }
+
 
     //=========================================================================
     // Generate peak function
