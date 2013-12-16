@@ -221,6 +221,9 @@ namespace Algorithms
     std::map<std::string, double> m_fitErrorPeakFunc;
     std::map<std::string, double> m_fitErrorBkgdFunc;
 
+    /// Option on output
+    bool m_lightWeightOutput;
+
   };
 
 

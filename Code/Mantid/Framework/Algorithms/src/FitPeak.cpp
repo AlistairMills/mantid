@@ -188,6 +188,9 @@ namespace Algorithms
 
     declareProperty("CostFunctionValue", DBL_MAX, "Value of cost function of the fitted peak. ", Kernel::Direction::Output);
 
+    declareProperty("OutputFitFunctionOnly", false, "If chosen, output workspace and output data parameter workspace will be empty."
+                    "This should be used by CAUTION!");
+
     return;
   }
 
@@ -368,6 +371,9 @@ namespace Algorithms
 
     // Minimizer
     m_minimizer = getPropertyValue("Minimizer");
+
+    // Output option
+    m_lightWeightOutput = getProperty("OutputFitFunctionOnly");
 
     return;
   }
@@ -639,49 +645,81 @@ namespace Algorithms
     */
   void FitPeak::setupOutput()
   {
-    // Data workspace
-    size_t nspec = 3;
-    // Get a vector for fit window
-    const MantidVec& vecX = m_dataWS->readX(m_wsIndex);
-    size_t vecsize = i_maxFitX - i_minFitX + 1;
-    vector<double> vecoutx(vecsize);
-    for (size_t i = i_minFitX; i <= i_maxFitX; ++i)
-      vecoutx[i-i_minFitX] = vecX[i];
+    //-----------------------------------------------------
+    // Fitted value (output data workspace)
+    //-----------------------------------------------------
+    MatrixWorkspace_sptr outws;
 
-    // Create workspace
-    size_t sizex = vecoutx.size();
-    size_t sizey = vecoutx.size();
-    MatrixWorkspace_sptr outws = boost::dynamic_pointer_cast<MatrixWorkspace>(
-          WorkspaceFactory::Instance().create("Workspace2D", nspec, sizex, sizey));
-
-    // Calculate again
-    FunctionDomain1DVector domain(vecoutx);
-    FunctionValues values(domain);
-
-    CompositeFunction_sptr compfunc = boost::make_shared<CompositeFunction>();
-    compfunc->addFunction(m_peakFunc);
-    compfunc->addFunction(m_bkgdFunc);
-    compfunc->function(domain, values);
-    for (size_t i = 0; i < sizex; ++i)
+    if (m_lightWeightOutput)
     {
-      for (size_t j = 0; j < 3; ++j)
-      {
-        outws->dataX(j)[i] = domain[i];
-      }
+      // Create an almost-empty data workspace
+      size_t nspec = 1;
+      size_t sizex = 1;
+      size_t sizey = 1;
+      outws = boost::dynamic_pointer_cast<MatrixWorkspace>(
+            WorkspaceFactory::Instance().create("Workspace2D", nspec, sizex, sizey));
     }
-    const MantidVec& vecY = m_dataWS->readY(m_wsIndex);
-    for (size_t i = 0; i < sizey; ++i)
+    else
     {
-      outws->dataY(0)[i] = vecY[i+i_minFitX];
-      outws->dataY(1)[i] = values[i];
-      outws->dataY(2)[i] = outws->dataY(0)[i]  - outws->dataY(1)[i];
+      // Full size serious output
+      size_t nspec = 3;
+      // Get a vector for fit window
+      const MantidVec& vecX = m_dataWS->readX(m_wsIndex);
+      size_t vecsize = i_maxFitX - i_minFitX + 1;
+      vector<double> vecoutx(vecsize);
+      for (size_t i = i_minFitX; i <= i_maxFitX; ++i)
+        vecoutx[i-i_minFitX] = vecX[i];
+
+      // Create workspace
+      size_t sizex = vecoutx.size();
+      size_t sizey = vecoutx.size();
+      outws = boost::dynamic_pointer_cast<MatrixWorkspace>(
+            WorkspaceFactory::Instance().create("Workspace2D", nspec, sizex, sizey));
+
+      // Calculate again
+      FunctionDomain1DVector domain(vecoutx);
+      FunctionValues values(domain);
+
+      CompositeFunction_sptr compfunc = boost::make_shared<CompositeFunction>();
+      compfunc->addFunction(m_peakFunc);
+      compfunc->addFunction(m_bkgdFunc);
+      compfunc->function(domain, values);
+      for (size_t i = 0; i < sizex; ++i)
+      {
+        for (size_t j = 0; j < 3; ++j)
+        {
+          outws->dataX(j)[i] = domain[i];
+        }
+      }
+      const MantidVec& vecY = m_dataWS->readY(m_wsIndex);
+      for (size_t i = 0; i < sizey; ++i)
+      {
+        outws->dataY(0)[i] = vecY[i+i_minFitX];
+        outws->dataY(1)[i] = values[i];
+        outws->dataY(2)[i] = outws->dataY(0)[i]  - outws->dataY(1)[i];
+      }
     }
 
     // Set property
     setProperty("OutputWorkspace", outws);
 
-    // Function parameter table workspaces
-    TableWorkspace_sptr peaktablews = genOutputTableWS(m_peakFunc, m_fitErrorPeakFunc, m_bkgdFunc, m_fitErrorBkgdFunc);
+    //-----------------------------------------------------
+    // Fitted function value (output table workspace)
+    //-----------------------------------------------------
+    TableWorkspace_sptr peaktablews;
+    if (m_lightWeightOutput)
+    {
+      // An almost-empty table workspace
+      peaktablews = boost::make_shared<TableWorkspace>();
+      peaktablews->addColumn("str", "Dummy");
+    }
+    else
+    {
+      // Function parameter table workspaces
+      peaktablews = genOutputTableWS(m_peakFunc, m_fitErrorPeakFunc, m_bkgdFunc,
+                                     m_fitErrorBkgdFunc);
+    }
+    // Set up property
     setProperty("ParameterTableWorkspace", peaktablews);
 
     // Parameter vector    
@@ -959,7 +997,7 @@ namespace Algorithms
       if (peakcentre < m_minPeakX || peakcentre > m_maxPeakX)
       {
         errorss << "Peak centre (at " << peakcentre << " ) is out of specified range )"
-                << m_minPeakX << ", " << m_maxPeakX << "). ";
+                << m_minPeakX << ", " << m_maxPeakX << ". ";
         costfuncvalue = DBL_MAX;
       }
 
@@ -1061,7 +1099,7 @@ namespace Algorithms
     string errorreason;
     goodness = checkFittedPeak(peakfunc, goodness, errorreason);
     if (errorreason.size() > 0)
-      g_log.notice() << "Error reason: " << errorreason << "\n";
+      g_log.notice() << "Error reason for index " << wsindex << ": " << errorreason << "\n";
 
     double goodness_final = DBL_MAX;
     if (goodness < goodness_init)

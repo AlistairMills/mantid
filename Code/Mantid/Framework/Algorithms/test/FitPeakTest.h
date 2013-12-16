@@ -114,6 +114,7 @@ public:
     fitpeak.setProperty("MinGuessedPeakWidth", 2);
     fitpeak.setProperty("MaxGuessedPeakWidth", 20);
     fitpeak.setProperty("GuessedPeakWidthStep", 2);
+    fitpeak.setProperty("OutputFitFunctionOnly", false);
 
     // Execute
     fitpeak.execute();
@@ -318,6 +319,7 @@ public:
     fitpeak.setPropertyValue("PeakRange", "2.055, 2.08");
     fitpeak.setProperty("FitBackgroundFirst", false);
     fitpeak.setProperty("RawParams", true);
+    fitpeak.setProperty("OutputFitFunctionOnly", false);
 
     // Execute
     fitpeak.execute();

@@ -1589,6 +1589,7 @@ namespace Algorithms
     fitpeak->setProperty("PeakPositionTolerance",m_peakPositionTolerance);
     fitpeak->setProperty("CostFunction", m_costFunction);
     fitpeak->setProperty("Minimizer", m_minimizer);
+    fitpeak->setProperty("OutputFitFunctionOnly", true);
 
     fitpeak->execute();
     if (!fitpeak->isExecuted())
