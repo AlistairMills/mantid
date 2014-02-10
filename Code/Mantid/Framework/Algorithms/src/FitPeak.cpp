@@ -167,7 +167,19 @@ namespace Algorithms
   void FitOneSinglePeak::setFittingMethod(std::string minimizer, std::string costfunction)
   {
     m_minimizer = minimizer;
-    m_costFunction = costfunction;
+    if (costfunction == "Chi-Square")
+    {
+      m_costFunction = "Least squares";
+    }
+    else if (costfunction == "Rwp")
+    {
+      m_costFunction = "Rwp";
+    }
+    else
+    {
+      g_log.error() << "Cost function " << costfunction << " is not supported. " << "\n";
+      throw runtime_error("Cost function is not supported. ");
+    }
 
     m_fitMethodSet = true;
 
@@ -501,6 +513,10 @@ namespace Algorithms
       g_log.error(errmsg);
       throw runtime_error("Object has not been set up completely to fit peak.");
     }
+    else
+    {
+      g_log.information("F1158: Well-setup and good to go!");
+    }
 
     m_bestRwp = DBL_MAX;
 
@@ -657,6 +673,8 @@ namespace Algorithms
       throw std::runtime_error(errss.str());
     }
 
+    g_log.information() << "F1200 Cost function is " << m_costFunction << "\n";
+
     // Set the properties
     fit->setProperty("Function", fitfunc);
     fit->setProperty("InputWorkspace", dataws);
@@ -696,9 +714,9 @@ namespace Algorithms
     }
 
     // Debug information
-    g_log.debug() << "FitSingleDomain Fitted-Function " << fitfunc->asString()
-                  << ": Fit-status = " << fitStatus
-                  << ", chi^2 = " << chi2 << ".\n";
+    g_log.information() << "[F1201] FitSingleDomain Fitted-Function " << fitfunc->asString()
+                        << ": Fit-status = " << fitStatus
+                        << ", chi^2 = " << chi2 << ".\n";
 
     return chi2;
   }
