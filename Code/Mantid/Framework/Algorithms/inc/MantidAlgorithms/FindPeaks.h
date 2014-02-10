@@ -108,8 +108,9 @@ private:
       const double& in_bg0, const double& in_bg1, const double& in_bg2);
 
   /// Add a new row in output TableWorkspace containing information of the fitted peak+background
-  void addInfoRow(const size_t spectrum, const std::vector<double> &peakparams,
-                  const std::vector<double> &bkgdparams, const bool isoutputraw,
+  void addInfoRow(const size_t spectrum, const API::IPeakFunction_const_sptr& peakfunction,
+                  const API::IBackgroundFunction_sptr& bkgdfunction,
+                  const bool isoutputraw,
                   const double mincost);
 
   /// Add the fit record (failure) to output workspace
@@ -171,11 +172,13 @@ private:
   void findPeakBackground(const API::MatrixWorkspace_sptr& input, int spectrum, size_t i_min, size_t i_max,
                           std::vector<double>& vecBkgdParamValues, std::vector<double>& vecpeakrange);
 
-  double callFitPeak(const API::MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvlaues0,
-                   const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
-                   const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
-                   int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
-                   std::vector<double>& vec_fittedbkgdparvalues);
+  double callFitPeak(const API::MatrixWorkspace_sptr& dataws, int wsindex,
+                     const API::IPeakFunction_sptr peakfunction,
+                     const API::IBackgroundFunction_sptr backgroundfunction,
+                     const std::vector<double>& vec_fitwindow,
+                     const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
+                     int guessedFWHMStep); //, std::vector<double>& vec_fittedpeakparvalues,
+  // std::vector<double>& vec_fittedbkgdparvalues);
 
   std::vector<std::string> m_peakParameterNames;
   std::vector<std::string> m_bkgdParameterNames;
@@ -206,7 +209,7 @@ private:
   std::vector<double> m_vecFitWindows;
 
   // Functions for reused 
-  API::IFunction_sptr m_backgroundFunction;
+  API::IBackgroundFunction_sptr m_backgroundFunction;
   API::IPeakFunction_sptr m_peakFunction;
 
   int m_minGuessedPeakWidth;

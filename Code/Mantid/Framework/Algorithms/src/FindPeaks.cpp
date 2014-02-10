@@ -28,6 +28,7 @@
 //----------------------------------------------------------------------
 #include "MantidAlgorithms/FindPeaks.h"
 
+#include "MantidAlgorithms/FitPeak.h"
 #include "MantidAPI/CostFunctionFactory.h"
 #include "MantidAPI/FunctionFactory.h"
 #include "MantidAPI/FuncMinimizerFactory.h"
@@ -945,13 +946,22 @@ namespace Algorithms
       est_height = 1.;
       g_log.error(errmsg);
     }
+    else
+    {
+      for (size_t i = 0; i < vec_bkgdparvalues0.size(); ++i)
+        m_backgroundFunction->setParameter(i, vec_bkgdparvalues0[i]);
+    }
 
     // Set peak parameters to
     m_peakFunction->setCentre(est_centre);
     m_peakFunction->setHeight(est_height);
     m_peakFunction->setFwhm(est_fwhm);
 
+#if 0
     std::vector<double> vec_peakparvalues0 = getStartingPeakValues();
+#else
+
+#endif
 
     //-------------------------------------------------------------------------
     // Fit Peak
@@ -959,10 +969,19 @@ namespace Algorithms
     std::vector<double> fitwindow(2);
     fitwindow[0] = vecX[i_min];
     fitwindow[1] = vecX[i_max];
-    std::vector<double> vec_fittedpeakparvalues, vec_fittedbkgdparvalues;
+    // std::vector<double> vec_fittedpeakparvalues, vec_fittedbkgdparvalues;
+#if 0
     double costfuncvalue = callFitPeak(input, spectrum, vec_peakparvalues0, vec_bkgdparvalues0, fitwindow, vecpeakrange,
                                        m_minGuessedPeakWidth, m_maxGuessedPeakWidth, m_stepGuessedPeakWidth,
                                        vec_fittedpeakparvalues, vec_fittedbkgdparvalues);
+#else
+    double costfuncvalue = callFitPeak(input, spectrum, m_peakFunction, m_backgroundFunction, fitwindow,
+                                       vecpeakrange, m_minGuessedPeakWidth, m_maxGuessedPeakWidth, m_stepGuessedPeakWidth);
+
+
+        /*callFitPeak(input, spectrum,  m_peakFunction, m_backgroundFunction, fitwindow, vecpeakrange,
+                                       m_minGuessedPeakWidth, m_maxGuessedPeakWidth, m_stepGuessedPeakWidth);*/
+#endif
     bool fitsuccess = false;
     if (costfuncvalue < DBL_MAX && costfuncvalue >= DBL_MIN)
       fitsuccess = true;
@@ -972,7 +991,7 @@ namespace Algorithms
     //-------------------------------------------------------------------------
     // Update output
     if (fitsuccess)
-      addInfoRow(spectrum, vec_fittedpeakparvalues, vec_fittedbkgdparvalues, m_rawPeaksTable, costfuncvalue);
+      addInfoRow(spectrum, m_peakFunction, m_backgroundFunction, m_rawPeaksTable, costfuncvalue);
     else
       addNonFitRecord(spectrum);
 
@@ -1234,9 +1253,12 @@ namespace Algorithms
     * @param mincost Chi2 value for this set of parameters
     * @param error Whether or not the fit ended in an error.
     *       addInfoRow(spectrum, vec_fittedpeakparvalues, vec_fittedbkgdparvalues, m_rawPeaksTable, costfuncvalue, fitsuccess);
+    * std::vector<double> &peakparams,
+     *                       const std::vector<double> &bkgdparams,
     */
-  void FindPeaks::addInfoRow(const size_t spectrum, const std::vector<double> &peakparams,
-                             const std::vector<double> &bkgdparams, const bool isoutputraw,
+  void FindPeaks::addInfoRow(const size_t spectrum, const API::IPeakFunction_const_sptr& peakfunction,
+                             const API::IBackgroundFunction_sptr& bkgdfunction,
+                             const bool isoutputraw,
                              const double mincost)
   {
     // Check input validity
@@ -1244,6 +1266,7 @@ namespace Algorithms
       throw std::runtime_error("Minimum cost indicates that fit fails.  This method should not be called "
                                "under this circumstance. ");
 
+#if 0
     if (isoutputraw && (peakparams.size() != m_peakParameterNames.size()))
       throw std::runtime_error("AddInfoRow Error.  Fit is successful.  But input number "
                                "of peak parameters' value is wrong. ");
@@ -1251,6 +1274,7 @@ namespace Algorithms
     if (isoutputraw && (bkgdparams.size() != m_bkgdParameterNames.size()))
       throw std::runtime_error("AddInfoRow Error.  Fit is successful.  But input number "
                                "of peak parameters' value is wrong. ");
+#endif
 
     // Add fitted parameters to output table workspace
     API::TableRow t = m_outPeakTableWS->appendRow();
@@ -1259,6 +1283,7 @@ namespace Algorithms
     if (isoutputraw)
     {
       // Output of raw peak parameters
+#if 0
       for (std::vector<double>::const_iterator it = peakparams.begin(); it != peakparams.end(); ++it)
       {
         t << (*it);
@@ -1269,34 +1294,45 @@ namespace Algorithms
         t << (*it);
         g_log.information() << (*it) << " ";
       }
+#endif
+      size_t nparams = peakfunction->nParams();
+      for (size_t i = 0; i < nparams; ++i)
+      {
+        t << peakfunction->getParameter(i);
+      }
+      nparams = bkgdfunction->nParams();
+      for (size_t i = 0; i < nparams; ++i)
+      {
+        t << bkgdfunction->getParameter(i);
+      }
     }
     else
     {
       // Output of effective peak parameters
       // Set up parameters to peak function and get effective value
-      for (size_t i = 0; i < m_peakParameterNames.size(); ++i)
-        m_peakFunction->setParameter(m_peakParameterNames[i], peakparams[i]);
+      // for (size_t i = 0; i < m_peakParameterNames.size(); ++i)
+      //   m_peakFunction->setParameter(m_peakParameterNames[i], peakparams[i]);
 
-      double peakcentre = m_peakFunction->centre();
-      double fwhm = m_peakFunction->fwhm();
-      double height = m_peakFunction->height();
+      double peakcentre = peakfunction->centre();
+      double fwhm = peakfunction->fwhm();
+      double height = peakfunction->height();
 
       t << peakcentre << fwhm << height;
 
       // Set up parameters to background function
-      for (size_t i = 0; i < m_bkgdParameterNames.size(); ++i)
-        m_backgroundFunction->setParameter(m_bkgdParameterNames[i], bkgdparams[i]);
+      // for (size_t i = 0; i < m_bkgdParameterNames.size(); ++i)
+      // m_backgroundFunction->setParameter(m_bkgdParameterNames[i], bkgdparams[i]);
 
       g_log.notice() << "[DBXXA] Background type = " << m_backgroundFunction->name() << "\n";
 
       // FIXME - Use Polynomial for all 3 background types.
-      double a0 = m_backgroundFunction->getParameter("A0");
+      double a0 = bkgdfunction->getParameter("A0");
       double a1 = 0.;
-      if (m_backgroundFunction->name() != "FlatBackground")
-        a1 = m_backgroundFunction->getParameter("A1");
+      if (bkgdfunction->name() != "FlatBackground")
+        a1 = bkgdfunction->getParameter("A1");
       double a2 = 0;
-      if (m_backgroundFunction->name() != "LinearBackground" && m_backgroundFunction->name() != "FlatBackground")
-        a2 = m_backgroundFunction->getParameter("A2");
+      if (bkgdfunction->name() != "LinearBackground" && bkgdfunction->name() != "FlatBackground")
+        a2 = bkgdfunction->getParameter("A2");
 
       t << a0 << a1 << a2;
 
@@ -1562,12 +1598,20 @@ namespace Algorithms
     return;
   }
 
-  double FindPeaks::callFitPeak(const MatrixWorkspace_sptr& dataws, int wsindex, const std::vector<double>& vec_peakparvalues0,
-                                const std::vector<double>& vec_bkgdparvalues0, const std::vector<double>& vec_fitwindow,
-                                const std::vector<double>& vec_peakrange, int minGuessedFWHM, int maxGuessFWHM,
-                                int guessedFWHMStep, std::vector<double>& vec_fittedpeakparvalues,
-                                std::vector<double>& vec_fittedbkgdparvalues)
+  /**
+    * const std::vector<double>& vec_peakparvalues0,
+    * const std::vector<double>& vec_bkgdparvalues0,
+    * std::vector<double>& vec_fittedpeakparvalues,
+    * std::vector<double>& vec_fittedbkgdparvalues
+    */
+  double FindPeaks::callFitPeak(const MatrixWorkspace_sptr& dataws, int wsindex,
+                                const API::IPeakFunction_sptr peakfunction,
+                                const API::IBackgroundFunction_sptr backgroundfunction,
+                                const std::vector<double>& vec_fitwindow,
+                                const std::vector<double>& vec_peakrange, int minGuessFWHM, int maxGuessFWHM,
+                                int guessedFWHMStep)
   {
+#if 0
     IAlgorithm_sptr fitpeak = createChildAlgorithm("FitPeak");
     fitpeak->initialize();
 
@@ -1589,7 +1633,6 @@ namespace Algorithms
     fitpeak->setProperty("PeakPositionTolerance",m_peakPositionTolerance);
     fitpeak->setProperty("CostFunction", m_costFunction);
     fitpeak->setProperty("Minimizer", m_minimizer);
-    fitpeak->setProperty("OutputFitFunctionOnly", true);
 
     fitpeak->execute();
     if (!fitpeak->isExecuted())
@@ -1599,6 +1642,26 @@ namespace Algorithms
     vec_fittedbkgdparvalues = fitpeak->getProperty("FittedBackgroundParameterValues");
 
     double costfuncvalue = fitpeak->getProperty("CostFunctionValue");
+#else
+    g_log.information("F1150 Fit 1 single peak.");
+    double userFWHM = m_peakFunction->fwhm();
+    bool fitwithsteppedfwhm = (guessedFWHMStep == 0);
+
+    FitOneSinglePeak fitpeak;
+    fitpeak.setWorskpace(dataws, wsindex);
+    fitpeak.setFitWindow(vec_fitwindow[0], vec_fitwindow[1]);
+    fitpeak.setFittingMethod(m_minimizer, m_costFunction);
+    fitpeak.setFunctions(peakfunction, backgroundfunction);
+    fitpeak.setupGuessedFWHM(userFWHM, minGuessFWHM, maxGuessFWHM, guessedFWHMStep, fitwithsteppedfwhm);
+    fitpeak.setPeakRange(vec_peakrange[0], vec_peakrange[1]);
+
+    if (m_highBackground)
+      fitpeak.highBkgdFit();
+    else
+      fitpeak.simpleFit();
+
+    double costfuncvalue = fitpeak.getFitCostFunctionValue();
+#endif
 
     return costfuncvalue;
   }

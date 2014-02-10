@@ -37,7 +37,7 @@ public:
   }
 
   /// Test basic functions
-  void PtestTheBasics()
+  void test_TheBasics()
   {
     FindPeaks finder;
     TS_ASSERT_EQUALS( finder.name(), "FindPeaks" );
@@ -45,7 +45,7 @@ public:
   }
 
   /// Test initialization
-  void PtestInit()
+  void testInit()
   {
     FindPeaks finder;
     TS_ASSERT_THROWS_NOTHING( finder.initialize() );
@@ -55,7 +55,7 @@ public:
   //----------------------------------------------------------------------------------------------
   /** Test find a single peak with given position
     */
-  void Ptest_findSinglePeakGivenPeakPosition()
+  void test_findSinglePeakGivenPeakPosition()
   {
     FrameworkManager::Instance();
 
@@ -110,7 +110,7 @@ public:
   }
 
   //----------------------------------------------------------------------------------------------
-  /** Test find peaks automatically
+  /** Test find peaks automaticallyclear
     */
   void test_findMultiPeaksAuto()
   {
