@@ -413,6 +413,9 @@ namespace Algorithms
     /// Option on output
     bool m_lightWeightOutput;
 
+    /// Option on output
+    bool m_lightWeightOutput;
+
   };
 
 
