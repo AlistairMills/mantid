@@ -67,7 +67,7 @@ namespace Algorithms
     */
   FitOneSinglePeak::FitOneSinglePeak() : m_fitMethodSet(false), m_peakRangeSet(false),
     m_peakWidthSet(false), m_peakWindowSet(false), m_usePeakPositionTolerance(false),
-    m_wsIndex(0)
+    m_wsIndex(0), m_numFitCalls(0)
   {
   }
 
@@ -329,7 +329,8 @@ namespace Algorithms
   /** Fit peak with simple schemem
     */
   bool FitOneSinglePeak::simpleFit()
-  {    
+  {
+    m_numFitCalls = 0;
     string errmsg;
     if (!hasSetupToFitPeak(errmsg))
     {
@@ -379,6 +380,8 @@ namespace Algorithms
 
     g_log.information() << "One-Step-Fit Best (Chi^2 = " << m_bestRwp << ") Fitted Function: "
                         << compfunc->asString() << "\n";
+
+    g_log.notice() << "Number of calls of Fit = " << m_numFitCalls << "\n";
 
     return false;
   }
@@ -506,6 +509,8 @@ namespace Algorithms
     */
   bool FitOneSinglePeak::highBkgdFit()
   {
+    m_numFitCalls = 0;
+
     // Check and initialization
     string errmsg;
     if (!hasSetupToFitPeak(errmsg))
@@ -564,6 +569,8 @@ namespace Algorithms
 
     g_log.information() << "MultStep-Fit: Best Fitted Peak: " << m_peakFunc->asString()
                         << "Final " << m_costFunction << " = " << m_finalFitGoodness << "\n";
+
+    g_log.notice() << "Number of calls on Fit = " << m_numFitCalls << "\n";
 
     return false;
   }
@@ -662,7 +669,6 @@ namespace Algorithms
     IAlgorithm_sptr fit;
     try
     {
-
       fit = createChildAlgorithm("Fit", -1, -1, true);
     }
     catch (Exception::NotFoundError &)
@@ -696,6 +702,7 @@ namespace Algorithms
       g_log.error("Fit for background is not executed. ");
       throw std::runtime_error("Fit for background is not executed. ");
     }
+    ++ m_numFitCalls;
 
     // Retrieve result
     std::string fitStatus = fit->getProperty("OutputStatus");
@@ -785,6 +792,7 @@ namespace Algorithms
     {
       throw runtime_error("Fit is not executed on multi-domain function/data. ");
     }
+    ++ m_numFitCalls;
 
     // Retrieve result
     std::string fitStatus = fit->getProperty("OutputStatus");

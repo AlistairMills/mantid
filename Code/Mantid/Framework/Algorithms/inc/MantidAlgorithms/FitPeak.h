@@ -208,6 +208,9 @@ namespace Algorithms
     /// Final goodness value (Rwp/Chi-square)
     double m_finalGoodnessValue;
 
+    /// 
+    size_t m_numFitCalls;
+
   };
 
 
