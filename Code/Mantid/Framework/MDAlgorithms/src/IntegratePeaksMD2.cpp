@@ -291,65 +291,65 @@ namespace MDAlgorithms
 		outFile = save_path + outFile;
 		out.open(outFile.c_str(), std::ofstream::out);
     }
-//
-// If the following OMP pragma is included, this algorithm seg faults
-// sporadically when processing multiple TOPAZ runs in a script, on 
-// Scientific Linux 6.2.  Typically, it seg faults after 2 to 6 runs are 
-// processed, though occasionally it will process all 8 requested in the 
-// script without crashing.  Since the lower level codes already use OpenMP, 
-// parallelizing at this level is only marginally useful, giving about a 
-// 5-10% speedup.  Perhaps is should just be removed permanantly, but for 
-// now it is commented out to avoid the seg faults.  Refs #5533
-//PRAGMA_OMP(parallel for schedule(dynamic, 10) )
-    for (int i=0; i < peakWS->getNumberPeaks(); ++i)
-    {
-      // Get a direct ref to that peak.
-      IPeak & p = peakWS->getPeak(i);
+	if (!cylinderBool)
+	{
+		// If the following OMP pragma is included, this algorithm seg faults
+		// sporadically when processing multiple TOPAZ runs in a script, on
+		// Scientific Linux 6.2.  Typically, it seg faults after 2 to 6 runs are
+		// processed, though occasionally it will process all 8 requested in the
+		// script without crashing.  Since the lower level codes already use OpenMP,
+		// parallelizing at this level is only marginally useful, giving about a
+		// 5-10% speedup.  Perhaps is should just be removed permanantly, but for
+		// now it is commented out to avoid the seg faults.  Refs #5533
+		PRAGMA_OMP(parallel for schedule(dynamic, 10) )
+		for (int i=0; i < peakWS->getNumberPeaks(); ++i)
+		{
+			// Get a direct ref to that peak.
+			IPeak & p = peakWS->getPeak(i);
 
-      // Get the peak center as a position in the dimensions of the workspace
-      V3D pos;
-      if (CoordinatesToUse == 1) //"Q (lab frame)"
-        pos = p.getQLabFrame();
-      else if (CoordinatesToUse == 2) //"Q (sample frame)"
-        pos = p.getQSampleFrame();
-      else if (CoordinatesToUse == 3) //"HKL"
-        pos = p.getHKL();
+			// Get the peak center as a position in the dimensions of the workspace
+			V3D pos;
+			if (CoordinatesToUse == 1) //"Q (lab frame)"
+			pos = p.getQLabFrame();
+			else if (CoordinatesToUse == 2) //"Q (sample frame)"
+			pos = p.getQSampleFrame();
+			else if (CoordinatesToUse == 3) //"HKL"
+			pos = p.getHKL();
 
-      // Get the instrument and its detectors
-      inst = peakWS->getInstrument();
-      // Do not integrate if sphere is off edge of detector
-      if (BackgroundOuterRadius > PeakRadius)
-      {
-        if (!detectorQ(p.getQLabFrame(), BackgroundOuterRadius))
-          {
-             g_log.warning() << "Warning: sphere/cylinder for integration is off edge of detector for peak " << i << std::endl;
-             if (!integrateEdge)continue;
-          }
-      }
-      else
-      {
-        if (!detectorQ(p.getQLabFrame(), PeakRadius))
-          {
-             g_log.warning() << "Warning: sphere/cylinder for integration is off edge of detector for peak " << i << std::endl;
-             if (!integrateEdge)continue;
-          }
-      }
+			// Get the instrument and its detectors
+			inst = peakWS->getInstrument();
+			// Do not integrate if sphere is off edge of detector
+			if (BackgroundOuterRadius > PeakRadius)
+			{
+			if (!detectorQ(p.getQLabFrame(), BackgroundOuterRadius))
+			  {
+				 g_log.warning() << "Warning: sphere/cylinder for integration is off edge of detector for peak " << i << std::endl;
+				 if (!integrateEdge)continue;
+			  }
+			}
+			else
+			{
+			if (!detectorQ(p.getQLabFrame(), PeakRadius))
+			  {
+				 g_log.warning() << "Warning: sphere/cylinder for integration is off edge of detector for peak " << i << std::endl;
+				 if (!integrateEdge)continue;
+			  }
+			}
 
-      // Build the sphere transformation
-      bool dimensionsUsed[nd];
-      coord_t center[nd];
-      for (size_t d=0; d<nd; ++d)
-      {
-        dimensionsUsed[d] = true; // Use all dimensions
-        center[d] = static_cast<coord_t>(pos[d]);
-      }
-	  signal_t signal = 0;
-	  signal_t errorSquared = 0;
-	  signal_t bgSignal = 0;
-	  signal_t bgErrorSquared = 0;
-	  double background_total = 0.0;
-      if (!cylinderBool)
-	  {
+			// Build the sphere transformation
+			bool dimensionsUsed[nd];
+			coord_t center[nd];
+			for (size_t d=0; d<nd; ++d)
+			{
+				dimensionsUsed[d] = true; // Use all dimensions
+				center[d] = static_cast<coord_t>(pos[d]);
+			}
+			signal_t signal = 0;
+			signal_t errorSquared = 0;
+			signal_t bgSignal = 0;
+			signal_t bgErrorSquared = 0;
+			double background_total = 0.0;
+
 			// modulus of Q
 			coord_t lenQpeak = 1.0;
 			if (adaptiveQRadius)
@@ -391,32 +391,94 @@ namespace MDAlgorithms
 					interiorSignal = signal;
 					interiorErrorSquared = errorSquared;
 				}
-		        // Subtract the peak part to get the intensity in the shell (BackgroundInnerRadius < r < BackgroundOuterRadius)
-		        bgSignal -= interiorSignal;
-		        // We can subtract the error (instead of adding) because the two values are 100% dependent; this is the same as integrating a shell.
-		        bgErrorSquared -= interiorErrorSquared;
+				// Subtract the peak part to get the intensity in the shell (BackgroundInnerRadius < r < BackgroundOuterRadius)
+				bgSignal -= interiorSignal;
+				// We can subtract the error (instead of adding) because the two values are 100% dependent; this is the same as integrating a shell.
+				bgErrorSquared -= interiorErrorSquared;
 
-		        // Relative volume of peak vs the BackgroundOuterRadius sphere
-		        double ratio = (PeakRadius / BackgroundOuterRadius);
-		        double peakVolume = ratio * ratio * ratio;
+				// Relative volume of peak vs the BackgroundOuterRadius sphere
+				double ratio = (PeakRadius / BackgroundOuterRadius);
+				double peakVolume = ratio * ratio * ratio;
 
-		        // Relative volume of the interior of the shell vs overall backgroundratio * ratio
-		        double interiorRatio = (BackgroundInnerRadius / BackgroundOuterRadius);
-		        // Volume of the bg shell, relative to the volume of the BackgroundOuterRadius sphere
-		        double bgVolume = 1.0 - interiorRatio * interiorRatio * interiorRatio;
+				// Relative volume of the interior of the shell vs overall backgroundratio * ratio
+				double interiorRatio = (BackgroundInnerRadius / BackgroundOuterRadius);
+				// Volume of the bg shell, relative to the volume of the BackgroundOuterRadius sphere
+				double bgVolume = 1.0 - interiorRatio * interiorRatio * interiorRatio;
 
-		        // Finally, you will multiply the bg intensity by this to get the estimated background under the peak volume
-		        double scaleFactor = peakVolume / bgVolume;
-		        bgSignal *= scaleFactor;
-		        bgErrorSquared *= scaleFactor;
-		        // Adjust the integrated values.
-		        signal -= bgSignal;
-		        // But we add the errors together
-		        errorSquared += bgErrorSquared;
+				// Finally, you will multiply the bg intensity by this to get the estimated background under the peak volume
+				double scaleFactor = peakVolume / bgVolume;
+				bgSignal *= scaleFactor;
+				bgErrorSquared *= scaleFactor;
+				// Adjust the integrated values.
+				signal -= bgSignal;
+				// But we add the errors together
+				errorSquared += bgErrorSquared;
 			}
-	  }
-      else
-      {
+			checkOverlap (i, peakWS, CoordinatesToUse,
+				  2.0 * std::max(PeakRadiusVector[i],BackgroundOuterRadiusVector[i]));
+			// Save it back in the peak object.
+			if (signal != 0. || replaceIntensity)
+			{
+			p.setIntensity(signal - ratio * background_total);
+			p.setSigmaIntensity( sqrt(errorSquared + ratio * ratio * std::fabs(background_total)) );
+			}
+
+			g_log.information() << "Peak " << i << " at " << pos << ": signal "
+			  << signal << " (sig^2 " << errorSquared << "), with background "
+			  << bgSignal << " (sig^2 " << bgErrorSquared << ") subtracted."
+			  << std::endl;
+		}
+	}
+	else
+	{
+		PRAGMA_OMP(parallel for schedule(dynamic, 10) )
+		for (int i=0; i < peakWS->getNumberPeaks(); ++i)
+		{
+			// Get a direct ref to that peak.
+			IPeak & p = peakWS->getPeak(i);
+
+			// Get the peak center as a position in the dimensions of the workspace
+			V3D pos;
+			if (CoordinatesToUse == 1) //"Q (lab frame)"
+			pos = p.getQLabFrame();
+			else if (CoordinatesToUse == 2) //"Q (sample frame)"
+			pos = p.getQSampleFrame();
+			else if (CoordinatesToUse == 3) //"HKL"
+			pos = p.getHKL();
+
+			// Get the instrument and its detectors
+			inst = peakWS->getInstrument();
+			// Do not integrate if sphere is off edge of detector
+			if (BackgroundOuterRadius > PeakRadius)
+			{
+				if (!detectorQ(p.getQLabFrame(), BackgroundOuterRadius))
+				{
+				 g_log.warning() << "Warning: sphere/cylinder for integration is off edge of detector for peak " << i << std::endl;
+				 if (!integrateEdge)continue;
+				}
+			}
+			else
+			{
+				if (!detectorQ(p.getQLabFrame(), PeakRadius))
+				  {
+					 g_log.warning() << "Warning: sphere/cylinder for integration is off edge of detector for peak " << i << std::endl;
+					 if (!integrateEdge)continue;
+				  }
+			}
+
+			// Build the sphere transformation
+			bool dimensionsUsed[nd];
+			coord_t center[nd];
+			for (size_t d=0; d<nd; ++d)
+			{
+				dimensionsUsed[d] = true; // Use all dimensions
+				center[d] = static_cast<coord_t>(pos[d]);
+			}
+			signal_t signal = 0;
+			signal_t errorSquared = 0;
+			signal_t bgSignal = 0;
+			signal_t bgErrorSquared = 0;
+			double background_total = 0.0;
 			CoordTransformDistance cylinder(nd, center, dimensionsUsed, 2);
 
 			// Perform the integration into whatever box is contained within.
@@ -463,27 +525,27 @@ namespace MDAlgorithms
 					interiorSignal = signal;
 					interiorErrorSquared = errorSquared;
 				}
-		        // Subtract the peak part to get the intensity in the shell (BackgroundInnerRadius < r < BackgroundOuterRadius)
-		        bgSignal -= interiorSignal;
-		        // We can subtract the error (instead of adding) because the two values are 100% dependent; this is the same as integrating a shell.
-		        bgErrorSquared -= interiorErrorSquared;
-		        // Relative volume of peak vs the BackgroundOuterRadius sphere
-		        double ratio = (PeakRadius / BackgroundOuterRadius);
-		        double peakVolume = ratio * ratio * (1-percentBackground/100.);
+				// Subtract the peak part to get the intensity in the shell (BackgroundInnerRadius < r < BackgroundOuterRadius)
+				bgSignal -= interiorSignal;
+				// We can subtract the error (instead of adding) because the two values are 100% dependent; this is the same as integrating a shell.
+				bgErrorSquared -= interiorErrorSquared;
+				// Relative volume of peak vs the BackgroundOuterRadius sphere
+				double ratio = (PeakRadius / BackgroundOuterRadius);
+				double peakVolume = ratio * ratio * (1-percentBackground/100.);
 
-		        // Relative volume of the interior of the shell vs overall backgroundratio * ratio
-		        double interiorRatio = (BackgroundInnerRadius / BackgroundOuterRadius);
-		        // Volume of the bg shell, relative to the volume of the BackgroundOuterRadius sphere
-		        double bgVolume = 1.0 - interiorRatio * interiorRatio * (percentBackground/100.);
+				// Relative volume of the interior of the shell vs overall backgroundratio * ratio
+				double interiorRatio = (BackgroundInnerRadius / BackgroundOuterRadius);
+				// Volume of the bg shell, relative to the volume of the BackgroundOuterRadius sphere
+				double bgVolume = 1.0 - interiorRatio * interiorRatio * (percentBackground/100.);
 
-		        // Finally, you will multiply the bg intensity by this to get the estimated background under the peak volume
-		        double scaleFactor = peakVolume / bgVolume;
-		        bgSignal *= scaleFactor;
-		        bgErrorSquared *= scaleFactor;
-		        // Adjust the integrated values.
-		        signal -= bgSignal;
-		        // But we add the errors together
-		        errorSquared += bgErrorSquared;
+				// Finally, you will multiply the bg intensity by this to get the estimated background under the peak volume
+				double scaleFactor = peakVolume / bgVolume;
+				bgSignal *= scaleFactor;
+				bgErrorSquared *= scaleFactor;
+				// Adjust the integrated values.
+				signal -= bgSignal;
+				// But we add the errors together
+				errorSquared += bgErrorSquared;
 			}
 			else
 			{
@@ -497,32 +559,32 @@ namespace MDAlgorithms
 
 			if (profileFunction.compare("NoFit") != 0)
 			{
-			    API::IAlgorithm_sptr findpeaks = createChildAlgorithm("FindPeaks", -1, -1, false);
-			    findpeaks->setProperty("InputWorkspace", wsProfile2D);
-			    findpeaks->setProperty<int>("FWHM",7);
-			    findpeaks->setProperty<int>("Tolerance",4);
-			    // FindPeaks will do the checking on the validity of WorkspaceIndex
-			    findpeaks->setProperty("WorkspaceIndex",static_cast<int>(i));
+				API::IAlgorithm_sptr findpeaks = createChildAlgorithm("FindPeaks", -1, -1, false);
+				findpeaks->setProperty("InputWorkspace", wsProfile2D);
+				findpeaks->setProperty<int>("FWHM",7);
+				findpeaks->setProperty<int>("Tolerance",4);
+				// FindPeaks will do the checking on the validity of WorkspaceIndex
+				findpeaks->setProperty("WorkspaceIndex",static_cast<int>(i));
 
-			    //Get the specified peak positions, which is optional
-			    findpeaks->setProperty<std::string>("PeakFunction", profileFunction);
-			    // FindPeaks will use linear or flat if they are better
-			    findpeaks->setProperty<std::string>("BackgroundType", "Quadratic");
-			    findpeaks->setProperty<bool>("HighBackground", true);
-			    findpeaks->setProperty<bool>("RawPeakParameters", true);
-			    std::vector<double> peakPosToFit;
-			    peakPosToFit.push_back(static_cast<double>(numSteps/2));
-			    findpeaks->setProperty("PeakPositions",peakPosToFit);
-			    findpeaks->setProperty<int>("MinGuessedPeakWidth",4);
-			    findpeaks->setProperty<int>("MaxGuessedPeakWidth",4);
-			    try
-			    {
-			    	findpeaks->executeAsChildAlg();
-			    } catch (...)
-			    {
-			    	g_log.error("Can't execute FindPeaks algorithm");
-			    	continue;
-			    }
+				//Get the specified peak positions, which is optional
+				findpeaks->setProperty<std::string>("PeakFunction", profileFunction);
+				// FindPeaks will use linear or flat if they are better
+				findpeaks->setProperty<std::string>("BackgroundType", "Quadratic");
+				findpeaks->setProperty<bool>("HighBackground", true);
+				findpeaks->setProperty<bool>("RawPeakParameters", true);
+				std::vector<double> peakPosToFit;
+				peakPosToFit.push_back(static_cast<double>(numSteps/2));
+				findpeaks->setProperty("PeakPositions",peakPosToFit);
+				findpeaks->setProperty<int>("MinGuessedPeakWidth",4);
+				findpeaks->setProperty<int>("MaxGuessedPeakWidth",4);
+				try
+				{
+					findpeaks->executeAsChildAlg();
+				} catch (...)
+				{
+					g_log.error("Can't execute FindPeaks algorithm");
+					continue;
+				}
 
 
 				API::ITableWorkspace_sptr paramws = findpeaks->getProperty("PeaksList");
@@ -531,25 +593,25 @@ namespace MDAlgorithms
 				fun_str << "name="<<profileFunction;
 
 				size_t numcols = paramws->columnCount();
-	            std::vector<std::string> paramsName = paramws->getColumnNames();
-	            std::vector<double> paramsValue;
-	            API::TableRow row = paramws->getRow(0);
-	            int spectrum;
-	            row >> spectrum;
-	            for (size_t j = 1; j < numcols; ++j)
-	            {
-	              double parvalue;
-	              row >> parvalue;
-	              if (j == numcols-4)fun_str << ";name=Quadratic";
-	              //erase f0. or f1.
-	              if (j > 0 && j < numcols-1) fun_str << "," << paramsName[j].erase(0,3) <<"="<<parvalue;
-	              paramsValue.push_back(parvalue);
-	            }
-	            if (i == 0)
-	            {
-	            	for (size_t j = 0; j < numcols; ++j)out << std::setw( 20 ) << paramsName[j] <<" " ;
-	            	out << "\n";
-	            }
+				std::vector<std::string> paramsName = paramws->getColumnNames();
+				std::vector<double> paramsValue;
+				API::TableRow row = paramws->getRow(0);
+				int spectrum;
+				row >> spectrum;
+				for (size_t j = 1; j < numcols; ++j)
+				{
+					double parvalue;
+					row >> parvalue;
+					if (j == numcols-4)fun_str << ";name=Quadratic";
+					//erase f0. or f1.
+					if (j > 0 && j < numcols-1) fun_str << "," << paramsName[j].erase(0,3) <<"="<<parvalue;
+					paramsValue.push_back(parvalue);
+				}
+				if (i == 0)
+				{
+					for (size_t j = 0; j < numcols; ++j)out << std::setw( 20 ) << paramsName[j] <<" " ;
+					out << "\n";
+				}
 				out << std::setw( 20 ) << i;
 				for (size_t j = 0; j < numcols-1; ++j)out << std::setw( 20 ) << std::fixed << std::setprecision( 10 ) << paramsValue[j] << " " ;
 				out << "\n";
@@ -604,22 +666,22 @@ namespace MDAlgorithms
 						background_total = background_total + background;
 				}
 			}
-      	  }
-          checkOverlap (i, peakWS, CoordinatesToUse,
-        		  2.0 * std::max(PeakRadiusVector[i],BackgroundOuterRadiusVector[i]));
-		  // Save it back in the peak object.
-		  if (signal != 0. || replaceIntensity)
-		  {
-			p.setIntensity(signal - ratio * background_total);
-			p.setSigmaIntensity( sqrt(errorSquared + ratio * ratio * std::fabs(background_total)) );
-		  }
+			checkOverlap (i, peakWS, CoordinatesToUse,
+				  2.0 * std::max(PeakRadiusVector[i],BackgroundOuterRadiusVector[i]));
+			// Save it back in the peak object.
+			if (signal != 0. || replaceIntensity)
+			{
+				p.setIntensity(signal - ratio * background_total);
+				p.setSigmaIntensity( sqrt(errorSquared + ratio * ratio * std::fabs(background_total)) );
+			}
 
-		  g_log.information() << "Peak " << i << " at " << pos << ": signal "
+			g_log.information() << "Peak " << i << " at " << pos << ": signal "
 			  << signal << " (sig^2 " << errorSquared << "), with background "
 			  << bgSignal << " (sig^2 " << bgErrorSquared << ") subtracted."
 			  << std::endl;
+		}
 
-    }
+	}
     // This flag is used by the PeaksWorkspace to evaluate whether it has been integrated.
     peakWS->mutableRun().addProperty("PeaksIntegrated", 1, true); 
     // These flags are specific to the algorithm.
