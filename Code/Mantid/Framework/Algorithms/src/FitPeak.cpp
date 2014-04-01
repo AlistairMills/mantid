@@ -204,8 +204,10 @@ namespace Algorithms
     if (usrwidth <= 0)
     {
       // Set up default FWHM if user does not give reasonable peak width
+#if 0
       g_log.warning() << "Client inputs user-defined peak width = " << usrwidth
                       << "; Automatically reset to 4 as default." << "\n";
+#endif
       if (!fitwithsteppedfwhm)
       {
         fitwithsteppedfwhm = true;
@@ -236,8 +238,8 @@ namespace Algorithms
     int i_centre = static_cast<int>(getVectorIndex(m_dataWS->readX(m_wsIndex), m_peakFunc->centre()));
     int i_maxindex = static_cast<int>(vecX.size())-1;
 
-    g_log.information() << "FWHM to guess. Range = " << minfwhm << ", " << maxfwhm
-                        << "; Step = " << stepsize << "\n";
+   //g_log.information() << "FWHM to guess. Range = " << minfwhm << ", " << maxfwhm
+     //                   << "; Step = " << stepsize << "\n";
     if (stepsize == 0 || maxfwhm < minfwhm)
       throw runtime_error("FWHM is not given right.");
 
@@ -254,8 +256,9 @@ namespace Algorithms
 
       double in_fwhm = vecX[irightside] - vecX[ileftside];
 
+#if 0
       if (in_fwhm < 1.0E-20)
-      {
+      {     
         g_log.warning() << "It is impossible to have zero peak width as iCentre = "
                         << i_centre << ", iWidth = " << iwidth << "\n"
                         << "More information: Spectrum = " << m_wsIndex << "; Range of X is "
@@ -267,6 +270,7 @@ namespace Algorithms
         g_log.debug() << "Fx330 i_width = " << iwidth << ", i_left = " << ileftside << ", i_right = "
                       << irightside << ", FWHM = " << in_fwhm << ".\n";
       }
+#endif
 
       m_vecFWHM.push_back(in_fwhm);
     }
@@ -346,7 +350,7 @@ namespace Algorithms
     compfunc->addFunction(m_peakFunc);
     compfunc->addFunction(m_bkgdFunc);
 
-    g_log.information() << "One-Step-Fit Function: " << compfunc->asString() << "\n";
+    // g_log.information() << "One-Step-Fit Function: " << compfunc->asString() << "\n";
 
     // Store starting setup
     push(m_peakFunc, m_bkupPeakFunc);
@@ -357,7 +361,7 @@ namespace Algorithms
     for (size_t i = 0; i < numfits; ++i)
     {
       // set FWHM
-      g_log.debug() << "[SingleStepFit] FWHM = " << m_vecFWHM[i] << "\n";
+      // g_log.debug() << "[SingleStepFit] FWHM = " << m_vecFWHM[i] << "\n";
       m_peakFunc->setFwhm(m_vecFWHM[i]);
 
       // fit and process result
@@ -378,10 +382,12 @@ namespace Algorithms
 
     m_finalGoodnessValue = m_bestRwp;
 
+#if 0
     g_log.information() << "One-Step-Fit Best (Chi^2 = " << m_bestRwp << ") Fitted Function: "
                         << compfunc->asString() << "\n";
 
     g_log.notice() << "Number of calls of Fit = " << m_numFitCalls << "\n";
+#endif
 
     return false;
   }
@@ -438,10 +444,12 @@ namespace Algorithms
         iymax = i;
       }
     }
+#if 0
     g_log.debug() << "Estimate-Peak-Height: Current peak height = " << curpeakheight
                   << ". Estimate-Peak-Height: Maximum Y value between " << vecX[ixmin] << " and "
                   << vecX[ixmax] << " is "
                   << ymax << " at X = " << vecX[iymax] << ".\n";
+#endif
 
     // Compute peak height (not the maximum peak intensity)
     double estheight = ymax/curpeakheight*peakfunc->height();
@@ -490,12 +498,13 @@ namespace Algorithms
     // Check validity and debug output
     if (!peakfunc)
       throw std::runtime_error("fitPeakFunction's input peakfunc has not been initialized.");
-    else
-      g_log.debug() << "Function (to fit): " << peakfunc->asString() << "  From "
-                    << startx << "  to " << endx << ".\n";
+
+
+    // g_log.debug() << "Function (to fit): " << peakfunc->asString() << "  From "
+       //             << startx << "  to " << endx << ".\n";
 
     double goodness = fitFunctionSD(peakfunc, dataws, wsindex, startx, endx, false);
-    g_log.debug() << "Peak parameter goodness-Fit = " << goodness << "\n";
+    // g_log.debug() << "Peak parameter goodness-Fit = " << goodness << "\n";
 
     return goodness;
   }
@@ -520,7 +529,8 @@ namespace Algorithms
     }
     else
     {
-      g_log.information("F1158: Well-setup and good to go!");
+      ;
+      // g_log.information("F1158: Well-setup and good to go!");
     }
 
     m_bestRwp = DBL_MAX;
@@ -550,8 +560,8 @@ namespace Algorithms
 
       // Set FWHM
       m_peakFunc->setFwhm(m_vecFWHM[i]);
-      g_log.debug() << "Round " << i << " of " << m_vecFWHM.size() << ". Using proposed FWHM = "
-                    << m_vecFWHM[i] << "\n";
+      // g_log.debug() << "Round " << i << " of " << m_vecFWHM.size() << ". Using proposed FWHM = "
+      // << m_vecFWHM[i] << "\n";
 
       // Fit
       double rwp = fitPeakFunction(m_peakFunc, purePeakWS, 0, m_minFitX, m_maxFitX);
@@ -567,10 +577,10 @@ namespace Algorithms
     m_finalFitGoodness = fitCompositeFunction(m_peakFunc, m_bkgdFunc, m_dataWS, m_wsIndex,
                                               m_minFitX, m_maxFitX);
 
-    g_log.information() << "MultStep-Fit: Best Fitted Peak: " << m_peakFunc->asString()
-                        << "Final " << m_costFunction << " = " << m_finalFitGoodness << "\n";
+    // g_log.information() << "MultStep-Fit: Best Fitted Peak: " << m_peakFunc->asString()
+    //                 << "Final " << m_costFunction << " = " << m_finalFitGoodness << "\n";
 
-    g_log.notice() << "Number of calls on Fit = " << m_numFitCalls << "\n";
+    // g_log.notice() << "Number of calls on Fit = " << m_numFitCalls << "\n";
 
     return false;
   }
@@ -679,7 +689,7 @@ namespace Algorithms
       throw std::runtime_error(errss.str());
     }
 
-    g_log.information() << "F1200 Cost function is " << m_costFunction << "\n";
+    // g_log.information() << "F1200 Cost function is " << m_costFunction << "\n";
 
     // Set the properties
     fit->setProperty("Function", fitfunc);
@@ -693,8 +703,8 @@ namespace Algorithms
     fit->setProperty("CalcErrors", true);
 
     // Execute fit and get result of fitting background
-    g_log.debug() << "FitSingleDomain: Fit " << fit->asString() << "; StartX = " << xmin
-                  << ", EndX = " << xmax << ".\n";
+    // g_log.debug() << "FitSingleDomain: Fit " << fit->asString() << "; StartX = " << xmin
+       //            << ", EndX = " << xmax << ".\n";
 
     fit->executeAsChildAlg();
     if (!fit->isExecuted())
@@ -721,9 +731,9 @@ namespace Algorithms
     }
 
     // Debug information
-    g_log.information() << "[F1201] FitSingleDomain Fitted-Function " << fitfunc->asString()
-                        << ": Fit-status = " << fitStatus
-                        << ", chi^2 = " << chi2 << ".\n";
+    // g_log.information() << "[F1201] FitSingleDomain Fitted-Function " << fitfunc->asString()
+    //                 << ": Fit-status = " << fitStatus
+    //               << ", chi^2 = " << chi2 << ".\n";
 
     return chi2;
   }
@@ -784,7 +794,7 @@ namespace Algorithms
     fit->setProperty("Minimizer", m_minimizer);
     fit->setProperty("CostFunction", "Least squares");
 
-    g_log.debug() << "FitMultiDomain: Funcion " << funcmd->asString() << "\n";
+    // g_log.debug() << "FitMultiDomain: Funcion " << funcmd->asString() << "\n";
 
     // Execute
     fit->execute();
@@ -796,14 +806,14 @@ namespace Algorithms
 
     // Retrieve result
     std::string fitStatus = fit->getProperty("OutputStatus");
-    g_log.debug() << "[DB] Multi-domain fit status: " << fitStatus << ".\n";
+    // g_log.debug() << "[DB] Multi-domain fit status: " << fitStatus << ".\n";
 
     double chi2 = EMPTY_DBL();
     if (fitStatus == "success")
     {
       chi2 = fit->getProperty("OutputChi2overDoF");
-      g_log.debug() << "FitMultidomain: Successfully-Fitted Function " <<fitfunc->asString()
-                    << ", Chi^2 = "<< chi2 << "\n";
+      // g_log.debug() << "FitMultidomain: Successfully-Fitted Function " <<fitfunc->asString()
+      //           << ", Chi^2 = "<< chi2 << "\n";
     }
 
     return chi2;
@@ -831,7 +841,7 @@ namespace Algorithms
     // Do calculation for starting chi^2/Rwp
     bool modecal = true;
     double goodness_init = fitFunctionSD(compfunc, dataws, wsindex, startx, endx, modecal);
-    g_log.debug() << "Peak+Backgruond: Pre-fit Goodness = " << goodness_init << "\n";
+    // g_log.debug() << "Peak+Backgruond: Pre-fit Goodness = " << goodness_init << "\n";
 
     map<string, double> bkuppeakmap, bkupbkgdmap;
     push(peakfunc, bkuppeakmap);
@@ -846,8 +856,10 @@ namespace Algorithms
 
     // Check fit result
     goodness = checkFittedPeak(peakfunc, goodness, errorreason);
+#if 0
     if (errorreason.size() > 0)
       g_log.information() << "Error reason: " << errorreason << "\n";
+#endif
 
     double goodness_final = DBL_MAX;
     if (goodness <= goodness_init)
@@ -860,15 +872,18 @@ namespace Algorithms
     {
       // A worse result is got.  Revert to original function parameters
       goodness_final = goodness_init;
+#if 0
       g_log.information() << "Fit peak/background composite function FAILS to render a better solution. "
                           << "Input cost function value = " << goodness_init << ", output cost function value = "
                           << goodness << "\n";
+#endif
       pop(bkuppeakmap, peakfunc);
       pop(bkupbkgdmap, bkgdfunc);
     }
     else
     {
-      g_log.error("Fit peak-background function fails in all approaches! ");
+      ;
+      // g_log.error("Fit peak-background function fails in all approaches! ");
     }
 
     return goodness_final;
@@ -1001,8 +1016,8 @@ namespace Algorithms
       fitsuccess = false;
     }
 
-    g_log.debug() << "Process and Store is called. " << "Rwp = " << rwp << ", best Rwp = "
-                  << m_bestRwp << ", Fit success = " << fitsuccess << "\n";
+    //g_log.debug() << "Process and Store is called. " << "Rwp = " << rwp << ", best Rwp = "
+    //            << m_bestRwp << ", Fit success = " << fitsuccess << "\n";
 
     // Store result if
     if (rwp < m_bestRwp && fitsuccess)
@@ -1018,7 +1033,8 @@ namespace Algorithms
     }
     else if (!fitsuccess)
     {
-      g_log.debug() << "Reason of fit's failure: " << failreason << "\n";
+      ;
+      // g_log.debug() << "Reason of fit's failure: " << failreason << "\n";
     }
 
     return;
@@ -1326,6 +1342,7 @@ namespace Algorithms
       throw runtime_error(errss.str());
     }
 
+#if 0
     if (m_minPeakX < m_minFitX)
     {
       g_log.warning() << "Minimum peak range is out side of the lower boundary of fit window.  ";
@@ -1334,6 +1351,7 @@ namespace Algorithms
     {
       g_log.warning() << "Maximum peak range is out side of the upper boundary of fit window. ";
     }
+#endif
 
     // i_minFitX = getVectorIndex(vecX, m_minFitX);
     // i_maxFitX = getVectorIndex(vecX, m_maxFitX);
@@ -1416,7 +1434,7 @@ namespace Algorithms
     // Generate background function
     m_bkgdFunc = boost::dynamic_pointer_cast<IBackgroundFunction>(
           FunctionFactory::Instance().createFunction(bkgdtype));
-    g_log.debug() << "Created background function of type " << bkgdtype << "\n";
+    // g_log.debug() << "Created background function of type " << bkgdtype << "\n";
 
     // Set background function parameter values
     m_bkgdParameterNames = getProperty("BackgroundParameterNames");
@@ -1455,7 +1473,7 @@ namespace Algorithms
     string peaktype = parseFunctionTypeFull(peaktypeprev, defaultparorder);
     m_peakFunc = boost::dynamic_pointer_cast<IPeakFunction>(
           FunctionFactory::Instance().createFunction(peaktype));
-    g_log.debug() << "Create peak function of type " << peaktype << "\n";
+    // g_log.debug() << "Create peak function of type " << peaktype << "\n";
 
     // Peak parameters' names
     m_peakParameterNames = getProperty("PeakParameterNames");
@@ -1490,7 +1508,7 @@ namespace Algorithms
       m_peakFunc->setParameter(m_peakParameterNames[i], vec_peakparvalues[i]);
     }
 
-    g_log.information() << "Created peak function " << m_peakFunc->asString() << "\n";
+    // g_log.information() << "Created peak function " << m_peakFunc->asString() << "\n";
 
     return;
   }
@@ -1530,9 +1548,11 @@ namespace Algorithms
 
     // Check validity on peak centre
     double centre_guess = m_peakFunc->centre();
+#if 0
     g_log.debug() << "Fit Peak with given window:  Guessed center = " << centre_guess
                         << "  x-min = " << m_minFitX
                         << ", x-max = " << m_maxFitX << "\n";
+#endif
     if (m_minFitX >= centre_guess || m_maxFitX <= centre_guess)
     {
       g_log.error("Peak centre is out side of fit window.");
@@ -1556,7 +1576,7 @@ namespace Algorithms
     size_t i_minFitX = getVectorIndex(m_dataWS->readX(m_wsIndex), m_minFitX);
     size_t i_maxFitX = getVectorIndex(m_dataWS->readX(m_wsIndex), m_maxFitX);
 
-    g_log.debug() << "[DB] i_min/max Fit X = " << i_minFitX << ", " << i_maxFitX << "\n";
+    // g_log.debug() << "[DB] i_min/max Fit X = " << i_minFitX << ", " << i_maxFitX << "\n";
 
     // Data workspace
     size_t nspec = 3;
