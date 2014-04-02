@@ -47,6 +47,8 @@ namespace Algorithms
 
     void setFitPeakCriteria(bool usepeakpostol, double peakpostol);
 
+    std::string getDebugMessage();
+
     /// Fit peak and background together
     bool simpleFit();
 
@@ -211,6 +213,8 @@ namespace Algorithms
     /// 
     size_t m_numFitCalls;
 
+    /// String stream
+    std::stringstream m_sstream;
   };
 
 

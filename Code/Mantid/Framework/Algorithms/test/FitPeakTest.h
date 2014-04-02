@@ -34,7 +34,7 @@ public:
   //----------------------------------------------------------------------------------------------
   /** Test on init and setup
     */
-  void test_Init()
+  void Ptest_Init()
   {
     // Generate input workspace
     MatrixWorkspace_sptr dataws = gen_4866P5Data();
@@ -79,7 +79,7 @@ public:
   //----------------------------------------------------------------------------------------------
   /** Test on fit a peak with significantly high background
     */
-  void test_FitPeakWithHighBkgd()
+  void Ptest_FitPeakWithHighBkgd()
   {
     // Generate input workspace
     MatrixWorkspace_sptr dataws = gen_4866P5Data();
@@ -114,7 +114,7 @@ public:
     fitpeak.setProperty("MinGuessedPeakWidth", 2);
     fitpeak.setProperty("MaxGuessedPeakWidth", 20);
     fitpeak.setProperty("GuessedPeakWidthStep", 2);
-    fitpeak.setProperty("OutputFitFunctionOnly", false);
+    // fitpeak.setProperty("OutputFitFunctionOnly", false);
 
     // Execute
     fitpeak.execute();
@@ -319,7 +319,6 @@ public:
     fitpeak.setPropertyValue("PeakRange", "2.055, 2.08");
     fitpeak.setProperty("FitBackgroundFirst", false);
     fitpeak.setProperty("RawParams", true);
-    fitpeak.setProperty("OutputFitFunctionOnly", false);
 
     // Execute
     fitpeak.execute();
